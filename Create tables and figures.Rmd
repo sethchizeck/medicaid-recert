@@ -1,0 +1,178 @@
+---
+title: "Medicaid recertification requirements study - Create tables and figures"
+author: "Seth Chizeck & Lori Leu"
+date: "`r Sys.Date()`"
+knit: (function(rmdfile, ...) { rmarkdown::render(rmdfile, output_file = 'Discounted Fares Pilot tables and figures.pdf', output_dir = 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis/Tables and figures') })
+output: 
+  bookdown::pdf_document2:
+      toc: FALSE
+      number_sections: FALSE
+      keep_tex: TRUE
+header-includes: 
+  - \setlength{\parindent}{2em}
+  - \setlength{\parskip}{0em}
+  - \usepackage{indentfirst, setspace, booktabs, floatrow, longtable, pdflscape, dcolumn, adjustbox, graphicx, threeparttablex}
+  - \usepackage[skip = 0.5\baselineskip]{caption}
+  - \floatplacement{figure}{H}
+  - \floatsetup[figure]{capposition = top}
+  - \floatsetup[table]{capposition = top}
+  - \newcommand{\blandscape}{\begin{landscape}}
+  - \newcommand{\elandscape}{\end{landscape}}
+linkcolor: red
+---
+
+```{r, include = FALSE}
+
+# Clear space
+
+rm(list=ls())
+
+# Load packages 
+
+library(cowplot)
+library(data.table)
+library(fixest)
+library(kableExtra)
+library(lubridate)
+library(sandwich)
+library(scales)
+library(tidyverse)
+
+# Set chunk options
+
+knitr::opts_chunk$set(echo = FALSE, eval = FALSE, message = FALSE, warning = FALSE, cache = FALSE)
+
+options(scipen=999)
+
+# Set filepath 
+
+filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis'
+```
+
+# Benchmark diff-in-diff results
+
+## Effects on Medicaid enrollment 
+
+### Figure - Likelihood of Medicaid enrollment by date relative to recert deadline
+
+```{r}
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Medicaid enrollment dates among all adults who were enrolled in MAGI Medicaid at some point since 4/1/2023
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
+
+# Medicaid recert deadlines since 4/1/2023
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Analyze data
+
+#----------------------------------------------------------------------------
+# Create a data frame with one obs per person per day that they were enrolled in Medicaid between 1/1/2023 and 6/30/2025
+
+random_samp <- sample_enrollment_dates %>%
+  distinct(ma_receipt_num) %>%
+  slice_sample(n = 5000)
+
+# Remove enrollment episodes where the start date is after 6/30/2025
+
+dt <- sample_enrollment_dates %>%
+  inner_join(random_samp, by = c('ma_receipt_num')) %>%
+  filter(elig_from_date <= as.Date('2025-06-30')) %>%
+  
+# Recode missing values of the enrollment episode end date as 6/30/2025
+  
+  mutate(elig_to_date = replace_na(elig_to_date, as.Date('2025-06-30'))) %>%
+  
+# Remove enrollment episodes that ended before 1/1/2023
+  
+  filter(elig_to_date >= as.Date('2023-01-01')) %>%
+  
+# Recode any episode start dates as 1/1/2023 if they are before 1/1/2023
+  
+  mutate(elig_from_date = if_else(elig_from_date < as.Date('2023-01-01'), as.Date('2023-01-01'), elig_from_date)) %>%
+  
+# Deduplicate the data
+  
+  distinct(ma_receipt_num, elig_from_date, elig_to_date) %>%
+  
+# Reshape the data to have 1 obs for each day during each enrollment episode
+  
+  group_by(ma_receipt_num, elig_from_date, elig_to_date) %>%
+  reframe(date = list(seq.Date(from = elig_from_date,
+                               to = elig_to_date,
+                               by = "day"))) %>%
+  unnest(date) %>%
+  ungroup() %>%
+  distinct(ma_receipt_num, date) %>%
+  mutate(medicaid_enrolled = 1) %>%
+
+#----------------------------------------------------------------------------
+# Combine the enrollment dates with the recert deadlines
+
+  left_join(sample_recert_deadlines %>%
+            inner_join(random_samp, by = c('ma_receipt_num')), 
+            by = c('ma_receipt_num'))
+
+#----------------------------------------------------------------------------
+# Join with a grid of each date within +/- 365 days of the person's recert deadline, capped at 06/30/2025
+
+date_grid <- sample_recert_deadlines %>%
+  inner_join(random_samp, by = c('ma_receipt_num')) %>%
+  mutate(start_date = recert_deadline - 365, 
+         end_date = pmin(recert_deadline + 365, as.Date('2025-06-30'))) %>%
+  group_by(ma_receipt_num, recert_deadline) %>%
+  reframe(date = seq.Date(from = start_date,
+                         to = end_date,
+                         by = "day")) %>%
+  ungroup() %>%
+  mutate(tau_days = as.numeric(date - recert_deadline), 
+         tau_weeks = floor(tau_days / 7)) 
+
+dt <- dt %>%
+  right_join(date_grid, by = c('ma_receipt_num', 'date')) %>%
+  mutate(medicaid_enrolled = replace_na(medicaid_enrolled, 0)) %>%
+  
+# Calc the % of the sample that was enrolled in Medicaid in each week between +/- 365 days of their recert deadline
+
+  group_by(tau_weeks) %>%
+  summarise(pct_medicaid_enrolled = mean(medicaid_enrolled)) %>%
+  ungroup() 
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Create graph
+
+dt %>%
+  ggplot(mapping = aes(x = tau_weeks, y = pct_medicaid_enrolled)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(aes(xintercept = 0), color = "red", linetype = "dashed") + 
+  theme_bw() +
+  scale_x_continuous(breaks = seq(-55,55,5),
+                     limits = c(-55,55)) +
+  scale_y_continuous(breaks = seq(0,1,0.1),
+                     limits = c(0,1),
+                     labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Weeks since recert deadline", y = "Pct of sample enrolled in Medicaid", title = "Medicaid enrollment rates over time relative to recertification deadline") + 
+  theme(panel.background = element_blank(), 
+        legend.title = element_blank(),
+        legend.position = 'bottom',
+        plot.title = element_text(size = 11),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.caption = element_text(hjust = 0))
+
+# Save graph image
+
+ggsave(paste0(filepath, "/Tables and figures/enrollment-rates-relative-to-recert-deadline.png"), 
+  plot = last_plot(),
+  width = 7,
+  height = 5)
+```

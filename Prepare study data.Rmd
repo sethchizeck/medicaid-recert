@@ -70,6 +70,10 @@ names(sample_enrollment_dates_raw) <- tolower(names(sample_enrollment_dates_raw)
 sample_enrollment_dates <- sample_enrollment_dates_raw %>%
   mutate_at(vars(elig_from_date, elig_to_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d')) %>%
   
+# Remove any enrollment spells where the start date is after the end date. These are data quality issues that I think we can safely remove. 
+  
+  filter(elig_from_date < elig_to_date) %>%
+  
 # Recode end dates of 6/6/2079 as missing. 
   
   mutate(elig_to_date = if_else(elig_to_date == as.Date('2079-06-06'), NA, elig_to_date)) %>%
@@ -171,14 +175,14 @@ where
 select distinct
     a.*,
     c.batch_date as termination_date, 
-    c.ma_term_reason_code,
-    e.ma_term_reason_desc
+    c.ma_term_reason_code as termination_reason_code,
+    e.ma_term_reason_desc as termination_reason_desc
 from 
     medicaid_magi_adults_04012023 a 
     left join ac_mh.pa_client_elig_daily c on c.recipient_nbr = a.ma_receipt_num 
     left join ac_mh.LKP_PA_MA_TERM_REASON e on e.ma_term_reason_code = c.ma_term_reason_code
 where 
-    c.ma_term_reason_code is not null')
+    c.change_type = \'Terminated Coverage\'')
 
 # Make var names lowercase
 

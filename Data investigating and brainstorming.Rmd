@@ -1,6 +1,6 @@
 ---
 title: "Medicaid recertification requirements study - Data investigating and brainstorming"
-author: "Seth Chizeck"
+author: "Seth Chizeck and Lori Leu"
 date: "`r Sys.Date()`"
 knit: (function(rmdfile, ...) { rmarkdown::render(rmdfile, output_file = 'Discounted Fares Pilot tables and figures.pdf', output_dir = 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis/Tables and figures') })
 output: 
@@ -31,23 +31,13 @@ rm(list=ls())
 #----------------------------------------------------------------------------
 # Load packages 
 
-library(boot)
 library(cowplot)
 library(data.table)
-library(did)
 library(fixest)
-library(hdm)
-library(ivreg)
 library(kableExtra)
-library(lfe)
-library(lmtest)
 library(lubridate)
-library(plm)
-library(qte)
-library(qvalue)
-library(quantreg)
-library(ri2)
 library(sandwich)
+library(scales)
 library(tidyverse)
 
 #----------------------------------------------------------------------------
