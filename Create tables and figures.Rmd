@@ -49,6 +49,29 @@ options(scipen=999)
 filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis'
 ```
 
+# Sample descriptions
+
+## Breakdown of reasons for Medicaid termination
+
+```{r}
+
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Sample termination reasons
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations.rda"))
+
+#----------------------------------------------------------------------------
+# Analyze data
+
+dt <- sample_terminations %>% 
+  filter(!is.na(termination_reason_desc)) %>% 
+  group_by(termination_reason_desc) %>%
+  summarise(count = n()) %>%
+  ungroup()
+```
+
 # Benchmark diff-in-diff results
 
 ## Effects on Medicaid enrollment 
@@ -74,29 +97,30 @@ load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadl
 # Analyze data
 
 #----------------------------------------------------------------------------
-# Create a data frame with one obs per person per day that they were enrolled in Medicaid between 1/1/2023 and 6/30/2025
+# Create a data frame with one obs per person per day that they were enrolled in Medicaid between 4/1/2023 and 6/30/2024
 
-random_samp <- sample_enrollment_dates %>%
-  distinct(ma_receipt_num) %>%
-  slice_sample(n = 5000)
+# Keep only the recert deadlines from between 4/1/2023 and 6/30/2024. This date range will give us at least 365 days of outcome data for every person (since our enrollment data only goes through 6/30/2025 right now)
+
+sample_recert_deadlines <- sample_recert_deadlines %>%
+  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2024-06-30')) 
 
 # Remove enrollment episodes where the start date is after 6/30/2025
 
 dt <- sample_enrollment_dates %>%
-  inner_join(random_samp, by = c('ma_receipt_num')) %>%
+  inner_join(sample_recert_deadlines %>% distinct(ma_receipt_num), by = c('ma_receipt_num')) %>%
   filter(elig_from_date <= as.Date('2025-06-30')) %>%
   
 # Recode missing values of the enrollment episode end date as 6/30/2025
   
   mutate(elig_to_date = replace_na(elig_to_date, as.Date('2025-06-30'))) %>%
   
-# Remove enrollment episodes that ended before 1/1/2023
+# Remove enrollment episodes that ended before 4/1/2022 (one year before the earliest recert date). We don't need to look back any further than this for now.
   
-  filter(elig_to_date >= as.Date('2023-01-01')) %>%
+  filter(elig_to_date >= as.Date('2022-04-01')) %>%
   
-# Recode any episode start dates as 1/1/2023 if they are before 1/1/2023
+# Recode any episode start dates as 4/1/2022 if they are before 4/1/2022
   
-  mutate(elig_from_date = if_else(elig_from_date < as.Date('2023-01-01'), as.Date('2023-01-01'), elig_from_date)) %>%
+  mutate(elig_from_date = if_else(elig_from_date < as.Date('2022-04-01'), as.Date('2022-04-01'), elig_from_date)) %>%
   
 # Deduplicate the data
   
@@ -111,20 +135,12 @@ dt <- sample_enrollment_dates %>%
   unnest(date) %>%
   ungroup() %>%
   distinct(ma_receipt_num, date) %>%
-  mutate(medicaid_enrolled = 1) %>%
+  mutate(medicaid_enrolled = 1) 
 
 #----------------------------------------------------------------------------
-# Combine the enrollment dates with the recert deadlines
+# Join with a grid of each date within +/- 365 days of the person's recert deadline
 
-  left_join(sample_recert_deadlines %>%
-            inner_join(random_samp, by = c('ma_receipt_num')), 
-            by = c('ma_receipt_num'))
-
-#----------------------------------------------------------------------------
-# Join with a grid of each date within +/- 365 days of the person's recert deadline, capped at 06/30/2025
-
-date_grid <- sample_recert_deadlines %>%
-  inner_join(random_samp, by = c('ma_receipt_num')) %>%
+recert_date_window_365 <- sample_recert_deadlines %>%
   mutate(start_date = recert_deadline - 365, 
          end_date = pmin(recert_deadline + 365, as.Date('2025-06-30'))) %>%
   group_by(ma_receipt_num, recert_deadline) %>%
@@ -136,7 +152,7 @@ date_grid <- sample_recert_deadlines %>%
          tau_weeks = floor(tau_days / 7)) 
 
 dt <- dt %>%
-  right_join(date_grid, by = c('ma_receipt_num', 'date')) %>%
+  right_join(recert_date_window_365, by = c('ma_receipt_num', 'date')) %>%
   mutate(medicaid_enrolled = replace_na(medicaid_enrolled, 0)) %>%
   
 # Calc the % of the sample that was enrolled in Medicaid in each week between +/- 365 days of their recert deadline

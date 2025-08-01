@@ -32,6 +32,9 @@ filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Med
 
 ```{r}
 
+#-------------------------------------------------------------------------
+# Pull raw data
+
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
 sample_enrollment_dates_raw <- dbGetQuery(conn = db_con, 
@@ -91,6 +94,10 @@ save(sample_enrollment_dates, file = paste0(filepath, "/Data/Medicaid enrollment
 
 ```{r}
 
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Pull raw data
+
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
 sample_recert_deadlines_raw <- dbGetQuery(conn = db_con, 
@@ -125,6 +132,7 @@ where
 names(sample_recert_deadlines_raw) <- tolower(names(sample_recert_deadlines_raw))
 
 #-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
 # Clean up the data
 
 # Convert dates to R date format
@@ -142,10 +150,43 @@ sample_recert_deadlines <- sample_recert_deadlines_raw %>%
   filter(!is.na(recert_deadline)) %>%
   distinct(ma_receipt_num, mci_uniq_id, recert_deadline) %>%
   
-# Remove recertification deadlines that are after today
+# Keep only the recertification deadlines from between 4/1/2023 and 6/30/2025 
   
-  filter(recert_deadline < Sys.Date())
-    
+  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2025-06-30'))
+
+#-------------------------------------------------------------------------
+# Remove any recertification deadlines that were >=2 deadlines into the future at the time the person left Medicaid
+
+# Load the Medicaid enrollment data for the sample
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
+
+# Identify the recertification deadlines that are at least two deadlines after the last deadline on which the person was enrolled in Medicaid
+
+sample_recert_deadlines <- sample_recert_deadlines %>%
+  left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
+  mutate(elig_to_date = replace_na(elig_to_date, Sys.Date()),
+         on_medicaid_as_of_deadline = ifelse(recert_deadline >= elig_from_date & recert_deadline <= elig_to_date, 1, 0)) %>%
+  group_by(ma_receipt_num, recert_deadline) %>%
+  summarise(on_medicaid_as_of_deadline = ifelse(sum(on_medicaid_as_of_deadline) > 0, 1, 0)) %>%
+  mutate(prior_recert_deadline = dplyr::lag(recert_deadline)) %>%
+  ungroup() %>%
+  arrange(ma_receipt_num, recert_deadline) %>%
+  group_by(ma_receipt_num) %>%
+  mutate(multiple_deadlines_since_being_on_medicaid = ifelse(cumsum(on_medicaid_as_of_deadline) == dplyr::lag(cumsum(on_medicaid_as_of_deadline), n = 2L), 1, 0)) %>%
+  ungroup() %>%
+  mutate(multiple_deadlines_since_being_on_medicaid = replace_na(multiple_deadlines_since_being_on_medicaid, 0)) %>%
+
+# Now see if the person was enrolled in Medicaid at any point between the flagged "non-binding" deadline and the most recent prior binding deadline. If not, then we can drop the flagged deadline. If so, then keep it because it was still binding in the sense that it was the person's known upcoming deadline.
+
+  left_join(sample_enrollment_dates, by = c('ma_receipt_num')) %>%
+  mutate(drop = ifelse(elig_to_date > prior_recert_deadline & elig_to_date < recert_deadline, 1, 0)) %>%
+  group_by(ma_receipt_num, recert_deadline, multiple_deadlines_since_being_on_medicaid) %>%
+  summarise(drop = ifelse(sum(drop, na.rm = TRUE) > 0, 1, 0)) %>%
+  ungroup() %>%
+  filter(multiple_deadlines_since_being_on_medicaid + drop < 2) %>%
+  select(ma_receipt_num, recert_deadline)
+  
 # Save data
 
 save(sample_recert_deadlines, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
@@ -154,6 +195,9 @@ save(sample_recert_deadlines, file = paste0(filepath, "/Data/Medicaid enrollment
 ## Medicaid termination dates and reasons between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
+
+#-------------------------------------------------------------------------
+# Pull raw data
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
@@ -207,6 +251,9 @@ save(sample_terminations, file = paste0(filepath, "/Data/Medicaid enrollment dat
 
 ```{r}
 
+#-------------------------------------------------------------------------
+# Pull raw data
+
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
 clinical_connect_coverage_dates <- dbGetQuery(conn = db_con, 
@@ -243,6 +290,9 @@ save(clinical_connect_coverage_dates, file = paste0(filepath, "/Data/Clinical Co
 ## Hospital event data
 
 ```{r}
+
+#-------------------------------------------------------------------------
+# Pull raw data
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
