@@ -26,9 +26,11 @@ options(scipen=999)
 filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis'
 ```
 
-# Create base study sample
+# Create the base panel data sets of Medicaid enrollment relative to recert deadlines
 
-## Medicaid enrollment spells for all-time, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
+## Pull base files
+
+### Medicaid enrollment spells for all-time, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
 
@@ -90,7 +92,7 @@ sample_enrollment_dates <- sample_enrollment_dates_raw %>%
 save(sample_enrollment_dates, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
 ```
 
-## Medicaid recertification deadlines between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
+### Medicaid recertification deadlines between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
 
@@ -155,7 +157,7 @@ sample_recert_deadlines <- sample_recert_deadlines_raw %>%
   filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2025-06-30'))
 
 #-------------------------------------------------------------------------
-# Remove any recertification deadlines that were >=2 deadlines into the future at the time the person left Medicaid
+# Remove any recertification deadlines that were >=2 deadlines into the future at the time the person left Medicaid - we can safely remove these deadlines b/c they were non-binding and they could not have induced a pre-treatment voluntary withdrawal. For example, let’s say a person enrolls in Medicaid on 1/1/2024. They are assigned a 6-month recert deadline of 6/1/2024 and a 12-month deadline of 1/1/2025. They voluntarily withdraw from Medicaid on 5/25/2024 and do not re-enroll before 1/1/2025. In this case we’d want to keep the 6/1/2024 deadline in the data but drop the 1/1/2025 deadline. The 1/1/2025 deadline plays no role in the person’s decision-making, and if we retain it in the data then it only serves to dilute the treatment effects because it’s an empty, meaningless deadline.
 
 # Load the Medicaid enrollment data for the sample
 
@@ -167,32 +169,32 @@ sample_recert_deadlines <- sample_recert_deadlines %>%
   left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
   mutate(elig_to_date = replace_na(elig_to_date, Sys.Date()),
          on_medicaid_as_of_deadline = ifelse(recert_deadline >= elig_from_date & recert_deadline <= elig_to_date, 1, 0)) %>%
-  group_by(ma_receipt_num, recert_deadline) %>%
+  group_by(ma_receipt_num, mci_uniq_id, recert_deadline) %>%
   summarise(on_medicaid_as_of_deadline = ifelse(sum(on_medicaid_as_of_deadline) > 0, 1, 0)) %>%
   mutate(prior_recert_deadline = dplyr::lag(recert_deadline)) %>%
   ungroup() %>%
-  arrange(ma_receipt_num, recert_deadline) %>%
-  group_by(ma_receipt_num) %>%
+  arrange(ma_receipt_num, mci_uniq_id, recert_deadline) %>%
+  group_by(ma_receipt_num, mci_uniq_id) %>%
   mutate(multiple_deadlines_since_being_on_medicaid = ifelse(cumsum(on_medicaid_as_of_deadline) == dplyr::lag(cumsum(on_medicaid_as_of_deadline), n = 2L), 1, 0)) %>%
   ungroup() %>%
   mutate(multiple_deadlines_since_being_on_medicaid = replace_na(multiple_deadlines_since_being_on_medicaid, 0)) %>%
 
 # Now see if the person was enrolled in Medicaid at any point between the flagged "non-binding" deadline and the most recent prior binding deadline. If not, then we can drop the flagged deadline. If so, then keep it because it was still binding in the sense that it was the person's known upcoming deadline.
 
-  left_join(sample_enrollment_dates, by = c('ma_receipt_num')) %>%
+  left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
   mutate(drop = ifelse(elig_to_date > prior_recert_deadline & elig_to_date < recert_deadline, 1, 0)) %>%
-  group_by(ma_receipt_num, recert_deadline, multiple_deadlines_since_being_on_medicaid) %>%
+  group_by(ma_receipt_num, mci_uniq_id, recert_deadline, multiple_deadlines_since_being_on_medicaid) %>%
   summarise(drop = ifelse(sum(drop, na.rm = TRUE) > 0, 1, 0)) %>%
   ungroup() %>%
   filter(multiple_deadlines_since_being_on_medicaid + drop < 2) %>%
-  select(ma_receipt_num, recert_deadline)
+  select(ma_receipt_num, mci_uniq_id, recert_deadline)
   
 # Save data
 
 save(sample_recert_deadlines, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
 ```
 
-## Medicaid termination dates and reasons between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
+### Medicaid termination dates and reasons between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
 
@@ -245,9 +247,141 @@ sample_terminations <- sample_terminations_raw %>%
 save(sample_terminations, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations.rda"))
 ```
 
-# Clinical Connect alerts data
+## Create panel data
 
-## Client data coverage dates
+```{r}
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Medicaid enrollment dates among the base sample (all adults who were enrolled in MAGI Medicaid at some point since 4/1/2023)
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
+
+# Medicaid recert deadlines since 4/1/2023 among the base sample
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Create panel data
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Day-level panel
+
+sample_recert_deadlines <- sample_recert_deadlines %>%
+    slice_sample(n = 10000) 
+
+#----------------------------------------------------------------------------
+# Create a grid of each day within +/- 365 days of each of the person's recert deadlines. Keep only the recert deadlines that give us at least 365 days of outcome data for every person in the base sample. For now, this is the recert deadlines up to 6/30/2024, since our enrollment data only goes through 6/30/2025 at the moment. We can extend this on a rolling basis. 
+
+# Filter to desired deadline date range
+
+recert_date_window_365 <- sample_recert_deadlines %>%
+  filter(recert_deadline <= as.Date('2024-06-30')) %>%
+  
+# Create a unique ID for each person and recert deadline
+
+  arrange(mci_uniq_id, recert_deadline) %>%
+  group_by(mci_uniq_id) %>%
+  mutate(deadline_counter = sequence(n())) %>%
+  ungroup() %>%
+  mutate(person_deadline_id = paste0(mci_uniq_id, "_", deadline_counter)) %>%
+  
+# Create the grid of dates
+
+  mutate(start_date = recert_deadline - 365, 
+         end_date = pmin(recert_deadline + 365, as.Date('2025-06-30'))) %>%
+  group_by(ma_receipt_num, mci_uniq_id, person_deadline_id, recert_deadline) %>%
+  reframe(date = seq.Date(from = start_date,
+                         to = end_date,
+                         by = "day")) %>%
+  ungroup() %>%
+  mutate(tau_days = as.numeric(date - recert_deadline), 
+         
+# Create a variable for calendar date fixed-effects
+
+         calendar_day = as.numeric(floor(difftime(date, min(date), units = "days"))) + 1)
+
+#----------------------------------------------------------------------------
+# Create a panel with one obs per person per day that they were enrolled in Medicaid between 4/1/2022 and 6/30/2025
+
+# Remove enrollment episodes where the start date is after 6/30/2025
+
+enrollment_days <- sample_enrollment_dates %>%
+  inner_join(sample_recert_deadlines %>% distinct(ma_receipt_num), by = c('ma_receipt_num')) %>%
+  filter(elig_from_date <= as.Date('2025-06-30')) %>%
+  
+# Recode missing values of the enrollment episode end date as 6/30/2025
+  
+  mutate(elig_to_date = replace_na(elig_to_date, as.Date('2025-06-30'))) %>%
+  
+# Remove enrollment episodes that ended before 4/1/2022 (one year before the earliest recert date). We don't need to look back any further than this for now.
+  
+  filter(elig_to_date >= as.Date('2022-04-01')) %>%
+  
+# Recode any episode start dates as 4/1/2022 if they are before 4/1/2022
+  
+  mutate(elig_from_date = if_else(elig_from_date < as.Date('2022-04-01'), as.Date('2022-04-01'), elig_from_date)) %>%
+  
+# Deduplicate the data
+  
+  distinct(ma_receipt_num, mci_uniq_id, elig_from_date, elig_to_date) %>%
+  
+# Reshape the data to have 1 obs for each day during each enrollment episode
+  
+  group_by(ma_receipt_num, mci_uniq_id, elig_from_date, elig_to_date) %>%
+  reframe(date = list(seq.Date(from = elig_from_date,
+                               to = elig_to_date,
+                               by = "day"))) %>%
+  unnest(date) %>%
+  ungroup() %>%
+  distinct(ma_receipt_num, mci_uniq_id, date) %>%
+  mutate(medicaid_enrolled = 1) 
+
+#----------------------------------------------------------------------------
+# Combine the enrollment days with the grid of dates around each recert deadline
+
+medicaid_enrollment_panel_daily <- enrollment_days %>%
+  right_join(recert_date_window_365, by = c('ma_receipt_num', 'mci_uniq_id', 'date')) %>%
+  mutate(medicaid_enrolled = replace_na(medicaid_enrolled, 0),
+  
+# Create a treatment indicator 
+  
+         treat = ifelse(tau_days >= 0, 1, 0)) 
+  
+# Save data
+  
+save(medicaid_enrollment_panel_daily, file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_daily.rda"))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Week-level panel
+
+# Roll up the daily panel into weeks
+
+medicaid_enrollment_panel_weekly <- medicaid_enrollment_panel_daily %>%
+  mutate(tau_weeks = as.numeric(floor(difftime(date, recert_deadline, units = "weeks"))) + 1,
+         calendar_week = as.numeric(floor(difftime(date, min(date), units = "weeks"))) + 1) %>%
+  group_by(ma_receipt_num, mci_uniq_id, person_deadline_id, recert_deadline, tau_weeks, calendar_week) %>%
+  summarise(medicaid_enrolled = ifelse(sum(medicaid_enrolled) > 0, 1, 0)) %>%
+  ungroup() %>%
+  mutate(treat = ifelse(tau_weeks >= 0, 1, 0))
+  
+# Save data
+  
+save(medicaid_enrollment_panel_weekly, file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly.rda"))
+```
+
+# Create outcomes data sets
+
+## Clinical Connect alerts data
+
+### Client data coverage dates
 
 ```{r}
 
@@ -359,7 +493,7 @@ clinical_connect_events <- clinical_connect_events_raw %>%
 save(clinical_connect_events, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events.rda"))
 ```
 
-# Medical examiner data
+## Medical examiner data
 
 ```{r}
 
@@ -411,7 +545,7 @@ medical_examiner_deaths <- medical_examiner_deaths %>%
 save(medical_examiner_deaths, file = paste0(filepath, "/Data/Medicaid claims data/medical_examiner_deaths.rda"))
 ```
 
-# UPMC claims data
+## UPMC claims data since 1/1/2022
 
 ```{r, eval = TRUE}
 
@@ -461,9 +595,9 @@ upmc_claims <- upmc_claims %>%
 save(upmc_claims, file = paste0(filepath, "/Data/UPMC claims data/upmc_claims.rda"))
 ```
 
-# Medicaid claims data
+## Medicaid claims data
 
-## Physical health claims
+### Physical health claims since 1/1/2022
 
 ```{r, eval = TRUE}
 
@@ -670,7 +804,7 @@ er_outpatient_claims <- er_outpatient_claims %>%
 save(er_outpatient_claims, file = paste0(filepath, "/Data/Medicaid claims data/er_outpatient_claims.rda"))
 ```
 
-## Mental health claims
+### Mental health claims since 1/1/2022
 
 ```{r}
 
@@ -818,7 +952,70 @@ mh_pymt_amts <- mh_pymt_amts %>%
 save(mh_pymt_amts, file = paste0(filepath, "/Data/Medicaid claims data/mh_pymt_amts.rda"))
 ```
 
-## Pharmacy claims
+### Pharmacy claims since 1/1/2022
+
+```{r}
+
+db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
+
+pharmacy_claims <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select  
+    a.*,
+    e.fact_rx_nbr, 
+    e.dispense_date, 
+    e.prescribed_date, 
+    e.adjudication_date,
+    e.mos, 
+    e.mop,
+    e.dispense_quantity, 
+    e.days_supply,
+    e.standardized_paid_amt, 
+    e.prescription_nbr,
+    e.refill_nbr,
+    e.ndc_drug_cd_nbr, 
+    g.label_name, 
+    g.brand_name, 
+    g.generic_name,
+    g.drug_class,
+    g.dosage_form_code_desc,
+    replace(g.drug_strength_desc, chr(0), \' \') as drug_strength_desc,
+    g.fdb_generic_classes, 
+    g.hic2_desc, 
+    g.hic3_desc,
+    g.generic_ther_class_desc, 
+    g.standard_ther_class_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.program_status in (\'27\', \'71\', \'91\')
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 >= 18) a
+  inner join AC_HCDM.DIM_MEMBER c on a.mci_uniq_id = c.mci_uniq_id
+  inner join AC_HCDM.FACT_RX e on c.member_nbr = e.member_nbr
+  left join ac_hcdm.dim_drug g on e.ndc_drug_cd_nbr = g.ndc_drug_cd_nbr
+where
+  e.dispense_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
+
+# Make var names lowercase
+
+names(pharmacy_claims) <- tolower(names(pharmacy_claims))
+
+# Reformat dates in R date format
+
+pharmacy_claims <- pharmacy_claims %>%
+    mutate_at(vars(dispense_date, prescribed_date, adjudication_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
+
+# Save data
+
+save(pharmacy_claims, file = paste0(filepath, "/Data/Medicaid claims data/pharmacy_claims.rda"))
+```
 
 
 

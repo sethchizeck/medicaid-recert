@@ -72,11 +72,9 @@ dt <- sample_terminations %>%
   ungroup()
 ```
 
-# Benchmark diff-in-diff results
+# Event study models
 
 ## Effects on Medicaid enrollment 
-
-### Figure - Likelihood of Medicaid enrollment by date relative to recert deadline
 
 ```{r}
 
@@ -84,84 +82,157 @@ dt <- sample_terminations %>%
 #----------------------------------------------------------------------------
 # Load relevant data
 
-# Medicaid enrollment dates among all adults who were enrolled in MAGI Medicaid at some point since 4/1/2023
+# Week-level Medicaid enrollment panel
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
-
-# Medicaid recert deadlines since 4/1/2023
-
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
+load(file = paste0(filepath, "medicaid_enrollment_panel_weekly.rda"))
 
 #----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Test for parallel trends in pre-treatment period
+
+pre_trend_data <- medicaid_enrollment_panel_weekly %>% 
+  filter(tau_weeks < 0)
+
+pre_trend_test <- feols(medicaid_enrolled ~ tau_weeks | person_deadline_id + calendar_week,
+                        data = pre_trend_data,
+                        cluster = "mci_uniq_id")
+
+summary(pre_trend_test)
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Benchmark models
+
+#----------------------------------------------------------------------------
+# Basic diff-in-diff model
+
+basic_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week, 
+                     data = medicaid_enrollment_panel_weekly,
+                     cluster = "mci_uniq_id")  
+
+summary(basic_model)
+
+#----------------------------------------------------------------------------
+# Basic event study model
+
+# Event study with person-deadline fixed effects
+
+event_study <- feols(medicaid_enrolled ~ i(tau_weeks, ref = -1) | person_deadline_id + calendar_week,
+                     data = medicaid_enrollment_panel_weekly,
+                     cluster = "mci_uniq_id")
+
+summary(event_study)
+
+# Alternative: Use binned endpoints for cleaner estimation
+
+event_study_binned <- feols(medicaid_enrolled ~ i(tau_weeks, ref = -1) | person_deadline_id + calendar_week,
+                           data = medicaid_enrollment_panel_weekly,
+                           cluster = "mci_uniq_id")
+
+summary(event_study_binned)
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Robustness checks
+
+#----------------------------------------------------------------------------
+# Exclude observations very close to the recert deadline ("donut hole")
+
+donut_data <- medicaid_enrollment_panel_weekly %>% 
+  filter(abs(tau_weeks) > 1)
+
+donut_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
+                     data = donut_data,
+                     cluster = "mci_uniq_id")
+
+#----------------------------------------------------------------------------
+# Different time windows - use a function to recreate data with different window
+
+narrow_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
+                      data = medicaid_enrollment_panel_weekly %>%
+                             filter(abs(tau_weeks) <= 12),
+                      cluster = "mci_uniq_id")
+
+#----------------------------------------------------------------------------
+# Two-way clustering 
+
+twoway_cluster <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
+                        data = medicaid_enrollment_panel_weekly,
+                        cluster = c("mci_uniq_id", "calendar_week"))
+```
+
+### Figure - Event study plot
+
+```{r}
+
+# Extract coefficients for event study plot
+
+event_coefs <- summary(event_study)$coefficients
+
+event_coefs_df <- data.frame(weeks_since = as.numeric(gsub("weeks_since_deadline::", "", rownames(event_coefs))),
+                              coef = event_coefs[, "Estimate"],
+                              se = event_coefs[, "Std. Error"]) %>%
+  mutate(ci_lower = coef - 1.96 * se,
+        ci_upper = coef + 1.96 * se) %>%
+  
+# Add reference point (week -1 = 0)
+  
+  bind_rows(data.frame(weeks_since = -1, coef = 0, se = 0, ci_lower = 0, ci_upper = 0))
+
+# Create event study plot
+
+ggplot(event_coefs_df, aes(x = weeks_since, y = coef)) +
+  geom_point() +
+  geom_line() +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.3) +
+  geom_vline(xintercept = -0.5, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = 0, linetype = "solid", color = "gray") +
+  labs(title = "Event Study: Effect of Recertification Deadline on Medicaid Enrollment",
+    x = "Weeks Since Recertification Deadline",
+    y = "Treatment Effect (Percentage Points)",
+    caption = "95% confidence intervals shown. Week -1 normalized to zero.") +
+  theme_minimal()
+```
+
+### Table - Effects of recert deadlines on likelihood of being enrolled in Medicaid, various specifications
+
+```{r}
+
+# Compare different specifications
+
+model_comparison <- list("Basic DD" = basic_model,
+                        "Donut Hole" = donut_model,
+                        "Narrow Window" = narrow_model,
+                        "Two-way Cluster" = twoway_cluster)
+
+# Print table
+
+etable(model_comparison, 
+       keep = "treated",
+       title = "Diff-in-Diff Results: Effect of Recertification on Medicaid Enrollment")
+```
+
+### Figure - Descriptive likelihood of Medicaid enrollment by week relative to recert deadline
+
+```{r}
+
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Week-level Medicaid enrollment panel
+
+load(file = paste0(filepath, "medicaid_enrollment_panel_weekly.rda"))
+
 #----------------------------------------------------------------------------
 # Analyze data
 
-#----------------------------------------------------------------------------
-# Create a data frame with one obs per person per day that they were enrolled in Medicaid between 4/1/2023 and 6/30/2024
-
-# Keep only the recert deadlines from between 4/1/2023 and 6/30/2024. This date range will give us at least 365 days of outcome data for every person (since our enrollment data only goes through 6/30/2025 right now)
-
-sample_recert_deadlines <- sample_recert_deadlines %>%
-  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2024-06-30')) 
-
-# Remove enrollment episodes where the start date is after 6/30/2025
-
-dt <- sample_enrollment_dates %>%
-  inner_join(sample_recert_deadlines %>% distinct(ma_receipt_num), by = c('ma_receipt_num')) %>%
-  filter(elig_from_date <= as.Date('2025-06-30')) %>%
-  
-# Recode missing values of the enrollment episode end date as 6/30/2025
-  
-  mutate(elig_to_date = replace_na(elig_to_date, as.Date('2025-06-30'))) %>%
-  
-# Remove enrollment episodes that ended before 4/1/2022 (one year before the earliest recert date). We don't need to look back any further than this for now.
-  
-  filter(elig_to_date >= as.Date('2022-04-01')) %>%
-  
-# Recode any episode start dates as 4/1/2022 if they are before 4/1/2022
-  
-  mutate(elig_from_date = if_else(elig_from_date < as.Date('2022-04-01'), as.Date('2022-04-01'), elig_from_date)) %>%
-  
-# Deduplicate the data
-  
-  distinct(ma_receipt_num, elig_from_date, elig_to_date) %>%
-  
-# Reshape the data to have 1 obs for each day during each enrollment episode
-  
-  group_by(ma_receipt_num, elig_from_date, elig_to_date) %>%
-  reframe(date = list(seq.Date(from = elig_from_date,
-                               to = elig_to_date,
-                               by = "day"))) %>%
-  unnest(date) %>%
-  ungroup() %>%
-  distinct(ma_receipt_num, date) %>%
-  mutate(medicaid_enrolled = 1) 
-
-#----------------------------------------------------------------------------
-# Join with a grid of each date within +/- 365 days of the person's recert deadline
-
-recert_date_window_365 <- sample_recert_deadlines %>%
-  mutate(start_date = recert_deadline - 365, 
-         end_date = pmin(recert_deadline + 365, as.Date('2025-06-30'))) %>%
-  group_by(ma_receipt_num, recert_deadline) %>%
-  reframe(date = seq.Date(from = start_date,
-                         to = end_date,
-                         by = "day")) %>%
-  ungroup() %>%
-  mutate(tau_days = as.numeric(date - recert_deadline), 
-         tau_weeks = floor(tau_days / 7)) 
-
-dt <- dt %>%
-  right_join(recert_date_window_365, by = c('ma_receipt_num', 'date')) %>%
-  mutate(medicaid_enrolled = replace_na(medicaid_enrolled, 0)) %>%
-  
 # Calc the % of the sample that was enrolled in Medicaid in each week between +/- 365 days of their recert deadline
 
+dt <- medicaid_enrollment_panel_weekly %>%
   group_by(tau_weeks) %>%
   summarise(pct_medicaid_enrolled = mean(medicaid_enrolled)) %>%
   ungroup() 
 
-#----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 # Create graph
 
@@ -187,7 +258,7 @@ dt %>%
 
 # Save graph image
 
-ggsave(paste0(filepath, "/Tables and figures/enrollment-rates-relative-to-recert-deadline.png"), 
+ggsave(paste0(filepath, "/Tables and figures/enrollment-rates-relative-to-recert-deadline.png"),
   plot = last_plot(),
   width = 7,
   height = 5)
