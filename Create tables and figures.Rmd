@@ -84,16 +84,16 @@ dt <- sample_terminations %>%
 
 # Week-level Medicaid enrollment panel
 
-load(file = paste0(filepath, "medicaid_enrollment_panel_weekly.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
 
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 # Test for parallel trends in pre-treatment period
 
 pre_trend_data <- medicaid_enrollment_panel_weekly %>% 
-  filter(tau_weeks < 0)
+  filter(tau_week < 0)
 
-pre_trend_test <- feols(medicaid_enrolled ~ tau_weeks | person_deadline_id + calendar_week,
+pre_trend_test <- feols(medicaid_enrolled ~ tau_week | person_deadline_id + calendar_week,
                         data = pre_trend_data,
                         cluster = "mci_uniq_id")
 
@@ -117,15 +117,15 @@ summary(basic_model)
 
 # Event study with person-deadline fixed effects
 
-event_study <- feols(medicaid_enrolled ~ i(tau_weeks, ref = -1) | person_deadline_id + calendar_week,
-                     data = medicaid_enrollment_panel_weekly,
+event_study <- feols(medicaid_enrolled ~ i(tau_week, ref = -1) | person_deadline_id + calendar_week,
+                     data = medicaid_enrollment_panel_weekly_random_sample,
                      cluster = "mci_uniq_id")
 
 summary(event_study)
 
 # Alternative: Use binned endpoints for cleaner estimation
 
-event_study_binned <- feols(medicaid_enrolled ~ i(tau_weeks, ref = -1) | person_deadline_id + calendar_week,
+event_study_binned <- feols(medicaid_enrolled ~ i(tau_week, ref = -1) | person_deadline_id + calendar_week,
                            data = medicaid_enrollment_panel_weekly,
                            cluster = "mci_uniq_id")
 
@@ -139,7 +139,7 @@ summary(event_study_binned)
 # Exclude observations very close to the recert deadline ("donut hole")
 
 donut_data <- medicaid_enrollment_panel_weekly %>% 
-  filter(abs(tau_weeks) > 1)
+  filter(abs(tau_week) > 1)
 
 donut_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
                      data = donut_data,
@@ -150,7 +150,7 @@ donut_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_w
 
 narrow_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
                       data = medicaid_enrollment_panel_weekly %>%
-                             filter(abs(tau_weeks) <= 12),
+                             filter(abs(tau_week) <= 12),
                       cluster = "mci_uniq_id")
 
 #----------------------------------------------------------------------------
@@ -167,21 +167,22 @@ twoway_cluster <- feols(medicaid_enrolled ~ treat | person_deadline_id + calenda
 
 # Extract coefficients for event study plot
 
-event_coefs <- summary(event_study)$coefficients
-
-event_coefs_df <- data.frame(weeks_since = as.numeric(gsub("weeks_since_deadline::", "", rownames(event_coefs))),
-                              coef = event_coefs[, "Estimate"],
-                              se = event_coefs[, "Std. Error"]) %>%
-  mutate(ci_lower = coef - 1.96 * se,
-        ci_upper = coef + 1.96 * se) %>%
+event_coefs <- data.frame(summary(event_study)$coefficients) %>%
+  rownames_to_column() %>%
+  inner_join(data.frame(summary(event_study)$se) %>% rownames_to_column(), 
+             by = c('rowname')) %>%
+  rename(tau = 1, effect = 2, std_err = 3) %>%
+  mutate(ci_lower = effect - 1.96 * std_err,
+        ci_upper = effect + 1.96 * std_err,
+        tau = as.numeric(str_replace(tau, "tau_week::", ""))) %>%
   
 # Add reference point (week -1 = 0)
   
-  bind_rows(data.frame(weeks_since = -1, coef = 0, se = 0, ci_lower = 0, ci_upper = 0))
+  bind_rows(data.frame(tau = -1, effect = 0, std_err = 0, ci_lower = 0, ci_upper = 0))
 
 # Create event study plot
 
-ggplot(event_coefs_df, aes(x = weeks_since, y = coef)) +
+ggplot(event_coefs, aes(x = tau, y = effect)) +
   geom_point() +
   geom_line() +
   geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.3) +
@@ -191,7 +192,7 @@ ggplot(event_coefs_df, aes(x = weeks_since, y = coef)) +
     x = "Weeks Since Recertification Deadline",
     y = "Treatment Effect (Percentage Points)",
     caption = "95% confidence intervals shown. Week -1 normalized to zero.") +
-  theme_minimal()
+  theme_bw()
 ```
 
 ### Table - Effects of recert deadlines on likelihood of being enrolled in Medicaid, various specifications
@@ -221,15 +222,15 @@ etable(model_comparison,
 
 # Week-level Medicaid enrollment panel
 
-load(file = paste0(filepath, "medicaid_enrollment_panel_weekly.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
 
 #----------------------------------------------------------------------------
 # Analyze data
 
 # Calc the % of the sample that was enrolled in Medicaid in each week between +/- 365 days of their recert deadline
 
-dt <- medicaid_enrollment_panel_weekly %>%
-  group_by(tau_weeks) %>%
+dt <- medicaid_enrollment_panel_weekly_random_sample %>%
+  group_by(tau_week) %>%
   summarise(pct_medicaid_enrolled = mean(medicaid_enrolled)) %>%
   ungroup() 
 
@@ -237,7 +238,7 @@ dt <- medicaid_enrollment_panel_weekly %>%
 # Create graph
 
 dt %>%
-  ggplot(mapping = aes(x = tau_weeks, y = pct_medicaid_enrolled)) +
+  ggplot(mapping = aes(x = tau_week, y = pct_medicaid_enrolled)) +
   geom_line() +
   geom_point() +
   geom_vline(aes(xintercept = 0), color = "red", linetype = "dashed") + 

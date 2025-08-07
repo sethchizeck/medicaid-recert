@@ -28,18 +28,22 @@ filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Med
 
 # Create the base panel data sets of Medicaid enrollment relative to recert deadlines
 
-## Pull base files
+## Pull and clean the data
 
-### Medicaid enrollment spells for all-time, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
+### Medicaid enrollment spells for all-time for people age 0 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
 
 #-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
 # Pull raw data
+
+#-------------------------------------------------------------------------
+# Adults
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-sample_enrollment_dates_raw <- dbGetQuery(conn = db_con, 
+sample_enrollment_dates_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -65,14 +69,63 @@ from
 
 # Make var names lowercase
 
-names(sample_enrollment_dates_raw) <- tolower(names(sample_enrollment_dates_raw))
+names(sample_enrollment_dates_adults) <- tolower(names(sample_enrollment_dates_adults))
 
+# Save data
+
+save(sample_enrollment_dates_adults, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_adults.rda"))
+
+#-------------------------------------------------------------------------
+# Adults
+
+sample_enrollment_dates_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'with medicaid_magi_children_04012023 as
+(select distinct 
+    a.ma_receipt_num, 
+    e.mci_uniq_id
+ from 
+    ac_mh.ccbh_hc_eligibility a
+    left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+where
+    a.category = \'MG\'
+    and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+    and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18)
+
+select distinct
+  a.ma_receipt_num, 
+  a.mci_uniq_id,
+  c.elig_from_date, 
+  c.elig_to_date
+from 
+  medicaid_magi_children_04012023 a
+  left join ac_mh.ccbh_hc_eligibility c on c.ma_receipt_num = a.ma_receipt_num')
+
+# Make var names lowercase
+
+names(sample_enrollment_dates_children) <- tolower(names(sample_enrollment_dates_children))
+
+# Save data
+
+save(sample_enrollment_dates_children, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children.rda"))
+
+#-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
 # Clean up the data
 
+# Load relevant data
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children.rda"))
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children.rda"))
+
+# Combine the adult and child samples. 
+
+sample_enrollment_dates <- bind_rows(sample_enrollment_dates_adults %>% mutate(child = 0), 
+                                     sample_enrollment_dates_children %>% mutate(child = 1)) %>%
+
 # Reformat dates as R date format
 
-sample_enrollment_dates <- sample_enrollment_dates_raw %>%
   mutate_at(vars(elig_from_date, elig_to_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d')) %>%
   
 # Remove any enrollment spells where the start date is after the end date. These are data quality issues that I think we can safely remove. 
@@ -85,14 +138,27 @@ sample_enrollment_dates <- sample_enrollment_dates_raw %>%
   
 # Deduplicate the data by enrollment spell
   
-  distinct()
+  distinct() 
+
+# Remove any clients who have multiple Medicaid ID numbers associated with the same MCI unique ID. 
   
-  # Save data
+unique_clients <- sample_enrollment_dates %>%
+  distinct(ma_receipt_num, mci_uniq_id) %>%
+  group_by(mci_uniq_id) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  filter(count == 1) %>% 
+  select(-count)
+
+sample_enrollment_dates <- sample_enrollment_dates %>%
+  inner_join(unique_clients, by = c('ma_receipt_num', 'mci_uniq_id')) 
+  
+# Save data
 
 save(sample_enrollment_dates, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
 ```
 
-### Medicaid recertification deadlines between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
+### Medicaid recertification deadlines between 4/1/2023 and today for people age 0 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
 
@@ -100,9 +166,12 @@ save(sample_enrollment_dates, file = paste0(filepath, "/Data/Medicaid enrollment
 #-------------------------------------------------------------------------
 # Pull raw data
 
+#-------------------------------------------------------------------------
+# Adults
+
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-sample_recert_deadlines_raw <- dbGetQuery(conn = db_con, 
+sample_recert_deadlines_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -131,79 +200,142 @@ where
 
 # Make var names lowercase
 
-names(sample_recert_deadlines_raw) <- tolower(names(sample_recert_deadlines_raw))
+names(sample_recert_deadlines_adults) <- tolower(names(sample_recert_deadlines_adults))
+
+# Save data
+
+save(sample_recert_deadlines_adults, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_adults.rda"))
+
+#-------------------------------------------------------------------------
+# Children
+
+sample_recert_deadlines_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'with medicaid_magi_children_04012023 as
+(select distinct 
+    a.ma_receipt_num, 
+    e.mci_uniq_id
+ from 
+    ac_mh.ccbh_hc_eligibility a
+    left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+where
+    a.category = \'MG\'
+    and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+    and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18)
+    
+select distinct
+    a.ma_receipt_num, 
+    a.mci_uniq_id,
+    c.ma_renewal_date as annual_recert_deadline, 
+    c.ma_sar_date as semiannual_recert_deadline
+from 
+    medicaid_magi_children_04012023 a 
+    inner join ac_mh.pa_client_elig_daily c on c.recipient_nbr = a.ma_receipt_num
+where
+    c.ma_renewal_date is not null 
+    or c.ma_sar_date is not null')
+
+# Make var names lowercase
+
+names(sample_recert_deadlines_children) <- tolower(names(sample_recert_deadlines_children))
+
+# Save data
+
+save(sample_recert_deadlines_children, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_children.rda"))
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
 # Clean up the data
 
+# Load relevant data
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_children.rda"))
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_adults.rda"))
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
+
+# Combine adult and child samples
+
+sample_recert_deadlines <- bind_rows(sample_recert_deadlines_adults %>% mutate(child = 0), 
+                                     sample_recert_deadlines_children %>% mutate(child = 1)) %>%
+
 # Convert dates to R date format
 
-sample_recert_deadlines <- sample_recert_deadlines_raw %>%
   mutate_at(vars(semiannual_recert_deadline, annual_recert_deadline), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d')) %>%
   
 # Reshape the data to have one row per deadline
   
-  gather(variable, recert_deadline, -ma_receipt_num, -mci_uniq_id) %>%
+  gather(variable, recert_deadline, -ma_receipt_num, -mci_uniq_id, -child) %>%
   select(-variable) %>%
-  
-# Deduplicate the data
-  
   filter(!is.na(recert_deadline)) %>%
-  distinct(ma_receipt_num, mci_uniq_id, recert_deadline) %>%
+  
+# Deduplicate the data. Remove any clients who have multiple Medicaid ID numbers associated with the same MCI unique ID. 
+  
+  distinct(ma_receipt_num, mci_uniq_id, child, recert_deadline) 
+
+unique_clients <- sample_recert_deadlines %>%
+  distinct(ma_receipt_num, mci_uniq_id) %>%
+  group_by(mci_uniq_id) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  filter(count == 1)
+
+sample_recert_deadlines <- sample_recert_deadlines %>%
+  inner_join(unique_clients, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
   
 # Keep only the recertification deadlines from between 4/1/2023 and 6/30/2025 
   
-  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2025-06-30'))
+  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2025-06-30')) 
 
 #-------------------------------------------------------------------------
-# Remove any recertification deadlines that were >=2 deadlines into the future at the time the person left Medicaid - we can safely remove these deadlines b/c they were non-binding and they could not have induced a pre-treatment voluntary withdrawal. For example, let’s say a person enrolls in Medicaid on 1/1/2024. They are assigned a 6-month recert deadline of 6/1/2024 and a 12-month deadline of 1/1/2025. They voluntarily withdraw from Medicaid on 5/25/2024 and do not re-enroll before 1/1/2025. In this case we’d want to keep the 6/1/2024 deadline in the data but drop the 1/1/2025 deadline. The 1/1/2025 deadline plays no role in the person’s decision-making, and if we retain it in the data then it only serves to dilute the treatment effects because it’s an empty, meaningless deadline.
+# Remove any recertification deadlines that were >=2 deadlines into the future at the time the person left Medicaid. We can safely remove these deadlines b/c they were non-binding and they could not have induced a pre-treatment voluntary withdrawal. For example, let’s say a person enrolls in Medicaid on 1/1/2024. They are assigned a 6-month recert deadline of 6/1/2024 and a 12-month deadline of 1/1/2025. They voluntarily withdraw from Medicaid on 5/25/2024 and do not re-enroll before 1/1/2025. In this case we’d want to keep the 6/1/2024 deadline in the data but drop the 1/1/2025 deadline. The 1/1/2025 deadline plays no role in the person’s decision-making, and if we retain it in the data then it only serves to dilute the treatment effects because it’s an empty, meaningless deadline.
 
-# Load the Medicaid enrollment data for the sample
-
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
-
-# Identify the recertification deadlines that are at least two deadlines after the last deadline on which the person was enrolled in Medicaid
+# Identify the recertification deadlines that are at least two deadlines after the most recent deadline date on which the person was enrolled in Medicaid
 
 sample_recert_deadlines <- sample_recert_deadlines %>%
-  left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
+  left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id', 'child')) %>%
   mutate(elig_to_date = replace_na(elig_to_date, Sys.Date()),
          on_medicaid_as_of_deadline = ifelse(recert_deadline >= elig_from_date & recert_deadline <= elig_to_date, 1, 0)) %>%
-  group_by(ma_receipt_num, mci_uniq_id, recert_deadline) %>%
+  group_by(ma_receipt_num, mci_uniq_id, child, recert_deadline) %>%
   summarise(on_medicaid_as_of_deadline = ifelse(sum(on_medicaid_as_of_deadline) > 0, 1, 0)) %>%
   mutate(prior_recert_deadline = dplyr::lag(recert_deadline)) %>%
   ungroup() %>%
   arrange(ma_receipt_num, mci_uniq_id, recert_deadline) %>%
-  group_by(ma_receipt_num, mci_uniq_id) %>%
+  group_by(ma_receipt_num, mci_uniq_id, child) %>%
   mutate(multiple_deadlines_since_being_on_medicaid = ifelse(cumsum(on_medicaid_as_of_deadline) == dplyr::lag(cumsum(on_medicaid_as_of_deadline), n = 2L), 1, 0)) %>%
   ungroup() %>%
   mutate(multiple_deadlines_since_being_on_medicaid = replace_na(multiple_deadlines_since_being_on_medicaid, 0)) %>%
 
 # Now see if the person was enrolled in Medicaid at any point between the flagged "non-binding" deadline and the most recent prior binding deadline. If not, then we can drop the flagged deadline. If so, then keep it because it was still binding in the sense that it was the person's known upcoming deadline.
 
-  left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
+  left_join(sample_enrollment_dates, by = c('ma_receipt_num', 'mci_uniq_id', 'child')) %>%
   mutate(drop = ifelse(elig_to_date > prior_recert_deadline & elig_to_date < recert_deadline, 1, 0)) %>%
-  group_by(ma_receipt_num, mci_uniq_id, recert_deadline, multiple_deadlines_since_being_on_medicaid) %>%
+  group_by(ma_receipt_num, mci_uniq_id, child, recert_deadline, multiple_deadlines_since_being_on_medicaid) %>%
   summarise(drop = ifelse(sum(drop, na.rm = TRUE) > 0, 1, 0)) %>%
   ungroup() %>%
   filter(multiple_deadlines_since_being_on_medicaid + drop < 2) %>%
-  select(ma_receipt_num, mci_uniq_id, recert_deadline)
+  select(ma_receipt_num, mci_uniq_id, child, recert_deadline)
   
 # Save data
 
 save(sample_recert_deadlines, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
 ```
 
-### Medicaid termination dates and reasons between 4/1/2023 and today, among adults age 18 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
+### Medicaid termination dates and reasons between 4/1/2023 and today for people age 0 to 64 who were enrolled in MAGI Medicaid at some point since 4/1/2023
 
 ```{r}
 
 #-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
 # Pull raw data
+
+#-------------------------------------------------------------------------
+# Adults
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-sample_terminations_raw <- dbGetQuery(conn = db_con, 
+sample_terminations_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -232,26 +364,100 @@ where
 
 # Make var names lowercase
 
-names(sample_terminations_raw) <- tolower(names(sample_terminations_raw))
+names(sample_terminations_adults) <- tolower(names(sample_terminations_adults))
 
+# Save data
+
+save(sample_terminations_adults, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_adults.rda"))
+
+#-------------------------------------------------------------------------
+# Children
+
+sample_terminations_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'with medicaid_magi_children_04012023 as
+(select distinct 
+    a.ma_receipt_num, 
+    e.mci_uniq_id
+ from 
+    ac_mh.ccbh_hc_eligibility a
+    left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+where
+    a.category = \'MG\'
+    and a.program_status in (\'27\', \'71\', \'91\')
+    and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+    and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18)
+
+select distinct
+    a.*,
+    c.batch_date as termination_date, 
+    c.ma_term_reason_code as termination_reason_code,
+    e.ma_term_reason_desc as termination_reason_desc
+from 
+    medicaid_magi_children_04012023 a 
+    left join ac_mh.pa_client_elig_daily c on c.recipient_nbr = a.ma_receipt_num 
+    left join ac_mh.LKP_PA_MA_TERM_REASON e on e.ma_term_reason_code = c.ma_term_reason_code
+where 
+    c.change_type = \'Terminated Coverage\'')
+
+# Make var names lowercase
+
+names(sample_terminations_children) <- tolower(names(sample_terminations_children))
+
+# Save data
+
+save(sample_terminations_children, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_children.rda"))
+
+#---------------------------------------------------------------------------
 #---------------------------------------------------------------------------
 # Clean up data
 
+# Load relevant data
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_adults.rda"))
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_children.rda"))
+
+# Combine the adult and child samples. 
+
+sample_terminations <- bind_rows(sample_terminations_adults %>% mutate(child = 0), 
+                                sample_terminations_children %>% mutate(child = 1)) %>%
+
 # Reformat dates as R date format
 
-sample_terminations <- sample_terminations_raw %>%
-  mutate(termination_date = as.Date(substring(as.character(termination_date), 1, 10), '%Y-%m-%d'))
+  mutate(termination_date = as.Date(substring(as.character(termination_date), 1, 10), '%Y-%m-%d')) %>%
+  
+# Some people have two identical termination dates in which one has a termination reason and the other does not. Keep the one with a termination reason
+  
+  group_by(ma_receipt_num, mci_uniq_id, child, termination_date) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  mutate(drop = ifelse(count > 1 & is.na(termination_reason_code), 1, 0)) %>%
+  filter(drop == 0) %>%
+  select(-drop, -count)
+
+# Remove any clients who have multiple Medicaid ID numbers associated with the same MCI unique ID. 
+  
+unique_clients <- sample_terminations %>%
+  distinct(ma_receipt_num, mci_uniq_id) %>%
+  group_by(mci_uniq_id) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  filter(count == 1) %>%
+  select(-count)
+
+sample_terminations <- sample_terminations %>%
+  inner_join(unique_clients, by = c('ma_receipt_num', 'mci_uniq_id')) 
 
 # Save data
 
 save(sample_terminations, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations.rda"))
 ```
 
-## Create panel data
+### Create week-level panel data
 
 ```{r}
 
-#----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 # Load relevant data
@@ -266,15 +472,7 @@ load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadl
 
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
-#----------------------------------------------------------------------------
-# Create panel data
-
-#----------------------------------------------------------------------------
-#----------------------------------------------------------------------------
-# Day-level panel
-
-sample_recert_deadlines <- sample_recert_deadlines %>%
-    slice_sample(n = 10000) 
+# Create week-level panel data
 
 #----------------------------------------------------------------------------
 # Create a grid of each day within +/- 365 days of each of the person's recert deadlines. Keep only the recert deadlines that give us at least 365 days of outcome data for every person in the base sample. For now, this is the recert deadlines up to 6/30/2024, since our enrollment data only goes through 6/30/2025 at the moment. We can extend this on a rolling basis. 
@@ -287,7 +485,7 @@ recert_date_window_365 <- sample_recert_deadlines %>%
 # Create a unique ID for each person and recert deadline
 
   arrange(mci_uniq_id, recert_deadline) %>%
-  group_by(mci_uniq_id) %>%
+  group_by(mci_uniq_id, child) %>%
   mutate(deadline_counter = sequence(n())) %>%
   ungroup() %>%
   mutate(person_deadline_id = paste0(mci_uniq_id, "_", deadline_counter)) %>%
@@ -296,7 +494,7 @@ recert_date_window_365 <- sample_recert_deadlines %>%
 
   mutate(start_date = recert_deadline - 365, 
          end_date = pmin(recert_deadline + 365, as.Date('2025-06-30'))) %>%
-  group_by(ma_receipt_num, mci_uniq_id, person_deadline_id, recert_deadline) %>%
+  group_by(ma_receipt_num, mci_uniq_id, person_deadline_id, child, recert_deadline) %>%
   reframe(date = seq.Date(from = start_date,
                          to = end_date,
                          by = "day")) %>%
@@ -330,58 +528,66 @@ enrollment_days <- sample_enrollment_dates %>%
   
 # Deduplicate the data
   
-  distinct(ma_receipt_num, mci_uniq_id, elig_from_date, elig_to_date) %>%
+  distinct(ma_receipt_num, mci_uniq_id, child, elig_from_date, elig_to_date) %>%
   
 # Reshape the data to have 1 obs for each day during each enrollment episode
   
-  group_by(ma_receipt_num, mci_uniq_id, elig_from_date, elig_to_date) %>%
+  group_by(ma_receipt_num, mci_uniq_id, child, elig_from_date, elig_to_date) %>%
   reframe(date = list(seq.Date(from = elig_from_date,
                                to = elig_to_date,
                                by = "day"))) %>%
   unnest(date) %>%
   ungroup() %>%
-  distinct(ma_receipt_num, mci_uniq_id, date) %>%
+  distinct(ma_receipt_num, mci_uniq_id, child, date) %>%
   mutate(medicaid_enrolled = 1) 
 
 #----------------------------------------------------------------------------
 # Combine the enrollment days with the grid of dates around each recert deadline
 
-medicaid_enrollment_panel_daily <- enrollment_days %>%
-  right_join(recert_date_window_365, by = c('ma_receipt_num', 'mci_uniq_id', 'date')) %>%
+medicaid_enrollment_panel_weekly <- enrollment_days %>%
+  right_join(recert_date_window_365, by = c('ma_receipt_num', 'mci_uniq_id', 'child', 'date')) %>%
   mutate(medicaid_enrolled = replace_na(medicaid_enrolled, 0),
   
 # Create a treatment indicator 
   
-         treat = ifelse(tau_days >= 0, 1, 0)) 
+         treat = ifelse(tau_days >= 0, 1, 0)) %>%
   
-# Save data
-  
-save(medicaid_enrollment_panel_daily, file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_daily.rda"))
-
 #----------------------------------------------------------------------------
-#----------------------------------------------------------------------------
-# Week-level panel
-
 # Roll up the daily panel into weeks
 
-medicaid_enrollment_panel_weekly <- medicaid_enrollment_panel_daily %>%
-  mutate(tau_weeks = as.numeric(floor(difftime(date, recert_deadline, units = "weeks"))) + 1,
+  mutate(tau_week = as.numeric(floor(difftime(date, recert_deadline, units = "weeks"))) + 1,
          calendar_week = as.numeric(floor(difftime(date, min(date), units = "weeks"))) + 1) %>%
-  group_by(ma_receipt_num, mci_uniq_id, person_deadline_id, recert_deadline, tau_weeks, calendar_week) %>%
+  group_by(ma_receipt_num, mci_uniq_id, person_deadline_id, child, recert_deadline, tau_week, calendar_week) %>%
   summarise(medicaid_enrolled = ifelse(sum(medicaid_enrolled) > 0, 1, 0)) %>%
   ungroup() %>%
-  mutate(treat = ifelse(tau_weeks >= 0, 1, 0))
+  mutate(treat = ifelse(tau_week >= 0, 1, 0))
   
+#----------------------------------------------------------------------------
 # Save data
   
 save(medicaid_enrollment_panel_weekly, file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly.rda"))
+
+# Save a random sample subset of the data for faster processing as we develop the code
+
+set.seed(62889)
+
+sample <- medicaid_enrollment_panel_weekly %>% 
+  distinct(mci_uniq_id) %>%
+  slice_sample(n = 10000)
+
+medicaid_enrollment_panel_weekly_random_sample <- medicaid_enrollment_panel_weekly %>% 
+  inner_join(sample, by = c('mci_uniq_id'))
+
+save(medicaid_enrollment_panel_weekly_random_sample, file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
 ```
 
 # Create outcomes data sets
 
 ## Clinical Connect alerts data
 
-### Client data coverage dates
+### Pull and clean the data
+
+#### Client data coverage dates
 
 ```{r}
 
@@ -421,16 +627,20 @@ clinical_connect_coverage_dates <- clinical_connect_coverage_dates %>%
 save(clinical_connect_coverage_dates, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_coverage_dates.rda"))
 ```
 
-## Hospital event data
+#### Hospital event data
 
 ```{r}
 
 #-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
 # Pull raw data
+
+#-------------------------------------------------------------------------
+# Adults
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-clinical_connect_events_raw <- dbGetQuery(conn = db_con, 
+clinical_connect_events_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -451,9 +661,9 @@ select distinct
     e.event_type, 
     e.patient_class, 
     e.admission_type, 
-    e.event_date_time,
-    e.admit_date_time,
-    e.discharge_date_time,
+    e.event_date_time as event_date,
+    e.admit_date_time as admit_date,
+    e.discharge_date_time as discharge_date,
     e.admit_source,
     e.admission_reason,
     e.diagnosis_code_1,
@@ -478,28 +688,211 @@ from
 
 # Make var names lowercase
 
-names(clinical_connect_events_raw) <- tolower(names(clinical_connect_events_raw))
+names(clinical_connect_events_adults) <- tolower(names(clinical_connect_events_adults))
+
+# Save data
+
+save(clinical_connect_events_adults, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_adults.rda"))
+
+#-------------------------------------------------------------------------
+# Children
+
+clinical_connect_events_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'with medicaid_magi_children_04012023 as
+(select distinct 
+    a.ma_receipt_num, 
+    e.mci_uniq_id
+ from 
+    ac_mh.ccbh_hc_eligibility a
+    left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+where
+    a.category = \'MG\'
+    and a.program_status in (\'27\', \'71\', \'91\')
+    and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+    and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18)
+
+select distinct
+    a.*,
+    e.encounter_id,
+    e.event_type, 
+    e.patient_class, 
+    e.admission_type, 
+    e.event_date_time as event_date,
+    e.admit_date_time as admit_date,
+    e.discharge_date_time as discharge_date,
+    e.admit_source,
+    e.admission_reason,
+    e.diagnosis_code_1,
+    e.diagnosis_description_1, 
+    e.diagnosis_code_2,
+    e.diagnosis_description_2, 
+    e.diagnosis_code_3,
+    e.diagnosis_description_3, 
+    e.diagnosis_code_4,
+    e.diagnosis_description_4, 
+    e.diagnosis_code_5,
+    e.diagnosis_description_5
+from 
+    medicaid_magi_children_04012023 a
+    inner join 
+        (select distinct
+            mci_uniq_id, 
+            uniqueid
+        from 
+            AC_HCDM.CCHIE_CLIENT_MASTER) c on c.mci_uniq_id = a.mci_uniq_id 
+    inner join ac_hcdm.cchie_alert e on LPAD(e.roster_patient_id, 10, \'0\') = c.uniqueid')
+
+# Make var names lowercase
+
+names(clinical_connect_events_children) <- tolower(names(clinical_connect_events_children))
+
+# Save data
+
+save(clinical_connect_events_children, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_children.rda"))
 
 #------------------------------------------------------------------------------
+#-------------------------------------------------------------------------
 # Clean the data
+
+# Load relevant data
+
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_children.rda"))
+
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_children.rda"))
+
+# Combine the adult and child samples
+
+clinical_connect_events <- bind_rows(clinical_connect_events_children %>% mutate(child = 1), 
+                                     clinical_connect_events_adults %>% mutate(child = 0)) %>%
 
 # Reformat dates as R date format
 
-clinical_connect_events <- clinical_connect_events_raw %>%
-  mutate_at(vars(event_date_time, admit_date_time, discharge_date_time), ~ as.Date(substring(as.character(.), 1, 10), '%Y%m%d'))
+  mutate_at(vars(event_date, admit_date, discharge_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y%m%d'))
 
 # Save data
 
 save(clinical_connect_events, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events.rda"))
 ```
 
-## Medical examiner data
+### Create panel outcomes data
 
 ```{r}
 
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Load relevant data
+
+# Client data coverage dates
+
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_coverage_dates.rda"))
+
+# Hospital alert data
+
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events.rda"))
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Create week-level panel data
+
+# Create four week-level outcome variables from this data: 1) Dummy var for having at least one ER visit in the given week 2) Number of days in the given week with an ER visit 3) Dummy var for having at least one inpatient hospitalization in the given week 4) Number of days in the given week on which the person had an inpatient hospital stay
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Create a data frame with one obs per client per week that they were included in the Clinical Connect alerts data share. Consider a client to have been included in the data share in a given week if they were included on at least one day in the week. 
+
+clinical_connect_coverage_weekly_panel <- clinical_connect_coverage_dates %>%
+  group_by(mci_uniq_id, first_date, latest_date) %>%
+  reframe(date = list(seq.Date(from = first_date,
+                               to = latest_date,
+                               by = "week"))) %>%
+  unnest(date) %>%
+  ungroup() %>%
+  distinct(mci_uniq_id, date) %>%
+  mutate(calendar_week = as.numeric(floor(difftime(date, as.Date('2022-01-01'), units = "weeks"))) + 1) %>%
+  select(-date)
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Create a data frame with one obs per client per week with the outcome variables
+
+#-------------------------------------------------------------------------
+# Create the ER outcome panel
+
+clinical_connect_er_weekly_panel <- clinical_connect_events %>%
+  filter(event_type == 'Emergency Department Admission') %>%
+  distinct(mci_uniq_id, event_date) %>%
+  mutate(calendar_week = as.numeric(floor(difftime(event_date, as.Date('2022-01-01'), units = "weeks"))) + 1) %>%
+  group_by(mci_uniq_id, calendar_week) %>%
+  summarise(had_er_visit = 1, 
+            n_er_visit_days = n()) %>%
+  ungroup() %>%
+  
+# Add zeroes for weeks when the person was covered by the data but had no ER visits
+  
+  right_join(clinical_connect_coverage_weekly_panel, by = c('mci_uniq_id', 'calendar_week')) %>%
+  mutate_at(vars(had_er_visit, n_er_visit_days), ~ replace_na(., 0))
+
+#-------------------------------------------------------------------------
+# Create the inpatient stay outcome panel
+
+# Keep only inpatient stays
+
+clinical_connect_inpatient_weekly_panel <- clinical_connect_events %>%
+  filter(event_type == 'Inpatient Discharge') %>%
+  
+# Remove stays where in the admit date is after the discharge date. These are data quality issues. 
+  
+  filter(admit_date <= discharge_date) %>%
+  
+# Reshape the data
+  
+  distinct(mci_uniq_id, admit_date, discharge_date) %>%
+  group_by(mci_uniq_id, admit_date, discharge_date) %>%
+  reframe(date = list(seq.Date(from = admit_date,
+                               to = discharge_date,
+                               by = "day"))) %>%
+  unnest(date) %>%
+  ungroup() %>%
+  distinct(mci_uniq_id, date) %>%
+  mutate(calendar_week = as.numeric(floor(difftime(date, as.Date('2022-01-01'), units = "weeks"))) + 1) %>%
+  group_by(mci_uniq_id, calendar_week) %>%
+  summarise(had_inpatient_stay = 1, 
+            n_inpatient_stay_days = n()) %>%
+  ungroup() %>%
+  
+# Add zeroes for weeks when the person was covered by the data but had no inpatient stays
+  
+  right_join(clinical_connect_coverage_weekly_panel, by = c('mci_uniq_id', 'calendar_week')) %>%
+  mutate_at(vars(had_inpatient_stay, n_inpatient_stay_days), ~ replace_na(., 0))
+
+#-------------------------------------------------------------------------
+# Combine and save data
+
+clinical_connect_outcomes_weekly_panel <- clinical_connect_er_weekly_panel %>%
+  left_join(clinical_connect_inpatient_weekly_panel, by = c('mci_uniq_id', 'calendar_week'))
+
+save(clinical_connect_outcomes_weekly_panel, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_outcomes_weekly_panel.rda"))
+```
+
+## Medical examiner data
+
+### Pull and clean the data
+
+```{r, eval = TRUE}
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Pull raw data
+
+#-------------------------------------------------------------------------
+# Adults
+
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-medical_examiner_deaths <- dbGetQuery(conn = db_con, 
+medical_examiner_deaths_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct
     a.*, 
@@ -533,7 +926,7 @@ where
 
 # Make var names lowercase
 
-names(medical_examiner_deaths) <- tolower(names(medical_examiner_deaths))
+names(medical_examiner_deaths_adults) <- tolower(names(medical_examiner_deaths_adults))
 
 # Reformat dates to R date format
 
@@ -545,13 +938,42 @@ medical_examiner_deaths <- medical_examiner_deaths %>%
 save(medical_examiner_deaths, file = paste0(filepath, "/Data/Medicaid claims data/medical_examiner_deaths.rda"))
 ```
 
-## UPMC claims data since 1/1/2022
+### Create panel outcomes data
+
+```{r}
+
+```
+
+## ACDHS-funded mental health claims data
+
+### Pull and clean the data
+
+```{r}
+
+```
+
+### Create panel outcomes data
+
+```{r}
+
+```
+
+## UPMC claims data 
+
+### Pull and clean the data
 
 ```{r, eval = TRUE}
 
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Pull raw data
+
+#----------------------------------------------------------------------------
+# Adults
+
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-upmc_claims <- dbGetQuery(conn = db_con, 
+upmc_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select 
     a.*,
@@ -583,11 +1005,55 @@ where
 
 # Make var names lowercase
 
-names(upmc_claims) <- tolower(names(upmc_claims))
+names(upmc_claims_adults) <- tolower(names(upmc_claims_adults))
+
+#----------------------------------------------------------------------------
+# Children
+
+upmc_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select 
+    a.*,
+    c.CLAIM_NBR, 
+    c.claim_line_nbr, 
+    c.service_begin_date,
+    c.ICD_PROCEDURE_ID,
+    c.icd_procedure_desc, 
+    c.cpt4_code, 
+    c.cpt4_desc,
+    e.icd_diagnosis_id, 
+    e.icd_diagnosis_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+    inner join ac_upmc.upmc_claim_proc c on c.mci_uniq_id = a.mci_uniq_id
+    left join ac_upmc.upmc_claim_dx e on e.master_member_id = c.master_member_id and e.claim_nbr = c.claim_nbr
+where
+    c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+
+# Make var names lowercase
+
+names(upmc_claims_children) <- tolower(names(upmc_claims_children))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for adults and children
+
+upmc_claims <- bind_rows(upmc_claims_adults %>% mutate(child = 0), 
+                         upmc_claims_children %>% mutate(child = 1)) %>%
 
 # Reformat dates to R date format
 
-upmc_claims <- upmc_claims %>%
   mutate_at(vars(service_begin_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -595,18 +1061,31 @@ upmc_claims <- upmc_claims %>%
 save(upmc_claims, file = paste0(filepath, "/Data/UPMC claims data/upmc_claims.rda"))
 ```
 
+### Create panel outcomes data
+
 ## Medicaid claims data
 
-### Physical health claims since 1/1/2022
+### Pull and clean the data
+
+#### Physical health claims since 1/1/2022
 
 ```{r, eval = TRUE}
+
+#--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
+# Pull raw data
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
 #--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
 # Non-ER inpatient care
 
-non_er_inpatient_claims <- dbGetQuery(conn = db_con, 
+#--------------------------------------------------------------------------
+# Adults
+
+non_er_inpatient_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct 
     a.*,
@@ -642,11 +1121,58 @@ where
 
 # Make var names lowercase
 
-names(non_er_inpatient_claims) <- tolower(names(non_er_inpatient_claims))
+names(non_er_inpatient_claims_adults) <- tolower(names(non_er_inpatient_claims_adults))
+
+#--------------------------------------------------------------------------
+# Children
+
+non_er_inpatient_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct 
+    a.*,
+    c.claim_enc_nbr, 
+    c.service_begin_date, 
+    c.service_end_date,
+    g.promise_specialty_desc,
+    k.diag_cd, 
+    k.diag_cd_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+    left join ac_hcdm.dim_member b on b.mci_uniq_id = a.mci_uniq_id
+    inner join AC_HCDM.FACT_PHBH_INPATIENT c on c.member_nbr = b.member_nbr
+    INNER JOIN AC_HCDM.BRIDGE_GENERIC_SERVICE_CAT d ON (d.SVC_CAT_GRP_NBR_SK = c.SVC_CAT_GRP_NBR)
+    INNER JOIN AC_HCDM.DIM_GENERIC_SERVICE_CAT e ON (e.SVC_CAT_NBR_SK = d.SVC_CAT_NBR_SK)
+    inner join ac_hcdm.dim_dhs_provider g on (g.dhs_provider_nbr_sk = c.billing_dhs_provider_nbr_sk)
+    INNER JOIN AC_HCDM.BRIDGE_DIAGNOSIS_CODE h ON h.DIAG_CD_GRP_NBR_SK = c.DIAG_CD_GRP_NBR_SK
+    INNER JOIN AC_HCDM.DIM_DIAGNOSIS_CODE k ON k.DIAG_CD_NBR_SK = h.DIAG_CD_NBR_SK
+where 
+    e.svc_cat_system = \'ER Indicator\'
+    and e.svc_cat_desc = \'Non-Emergency Room Service\'
+    and c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+
+# Make var names lowercase
+
+names(non_er_inpatient_claims_children) <- tolower(names(non_er_inpatient_claims_children))
+
+#--------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for children and adults
+
+non_er_inpatient_claims <- bind_rows(non_er_inpatient_claims_adults %>% mutate(child = 0), 
+                                     non_er_inpatient_claims_children %>% mutate(child = 1)) %>%
 
 # Reformat dates to R date format
 
-non_er_inpatient_claims <- non_er_inpatient_claims %>%
   mutate_at(vars(service_begin_date, service_end_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -654,9 +1180,13 @@ non_er_inpatient_claims <- non_er_inpatient_claims %>%
 save(non_er_inpatient_claims, file = paste0(filepath, "/Data/Medicaid claims data/non_er_inpatient_claims.rda"))
 
 #--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
 # ER inpatient care
 
-er_inpatient_claims <- dbGetQuery(conn = db_con, 
+#--------------------------------------------------------------------------
+# Adults
+
+er_inpatient_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct 
     a.*,
@@ -692,11 +1222,58 @@ where
 
 # Make var names lowercase
 
-names(er_inpatient_claims) <- tolower(names(er_inpatient_claims))
+names(er_inpatient_claims_adults) <- tolower(names(er_inpatient_claims_adults))
+
+#--------------------------------------------------------------------------
+# Children
+
+er_inpatient_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct 
+    a.*,
+    c.claim_enc_nbr, 
+    c.service_begin_date, 
+    c.service_end_date,
+    g.promise_specialty_desc,
+    k.diag_cd, 
+    k.diag_cd_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+    left join ac_hcdm.dim_member b on b.mci_uniq_id = a.mci_uniq_id
+    inner join AC_HCDM.FACT_PHBH_INPATIENT c on c.member_nbr = b.member_nbr
+    INNER JOIN AC_HCDM.BRIDGE_GENERIC_SERVICE_CAT d ON (d.SVC_CAT_GRP_NBR_SK = c.SVC_CAT_GRP_NBR)
+    INNER JOIN AC_HCDM.DIM_GENERIC_SERVICE_CAT e ON (e.SVC_CAT_NBR_SK = d.SVC_CAT_NBR_SK)
+    inner join ac_hcdm.dim_dhs_provider g on (g.dhs_provider_nbr_sk = c.billing_dhs_provider_nbr_sk)
+    INNER JOIN AC_HCDM.BRIDGE_DIAGNOSIS_CODE h ON h.DIAG_CD_GRP_NBR_SK = c.DIAG_CD_GRP_NBR_SK
+    INNER JOIN AC_HCDM.DIM_DIAGNOSIS_CODE k ON k.DIAG_CD_NBR_SK = h.DIAG_CD_NBR_SK
+where 
+    e.svc_cat_system = \'ER Indicator\'
+    and e.svc_cat_desc = \'Emergency Room Service\'
+    and c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
+
+# Make var names lowercase
+
+names(er_inpatient_claims_children) <- tolower(names(er_inpatient_claims_children))
+
+#--------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for children and adults
+
+er_inpatient_claims <- bind_rows(er_inpatient_claims_children %>% mutate(child = 1), 
+                                 er_inpatient_claims_adults %>% mutate(child = 0)) %>%
 
 # Reformat dates to R date format
 
-er_inpatient_claims <- er_inpatient_claims %>%
   mutate_at(vars(service_begin_date, service_end_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -704,9 +1281,13 @@ er_inpatient_claims <- er_inpatient_claims %>%
 save(er_inpatient_claims, file = paste0(filepath, "/Data/Medicaid claims data/er_inpatient_claims.rda"))
 
 #--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
 # Non-ER outpatient care
 
-non_er_outpatient_claims <- dbGetQuery(conn = db_con, 
+#--------------------------------------------------------------------------
+# Adults
+
+non_er_outpatient_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct 
     a.*,
@@ -742,11 +1323,58 @@ where
 
 # Make var names lowercase
 
-names(non_er_outpatient_claims) <- tolower(names(non_er_outpatient_claims))
+names(non_er_outpatient_claims_adults) <- tolower(names(non_er_outpatient_claims_adults))
+
+#--------------------------------------------------------------------------
+# Children
+
+non_er_outpatient_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct 
+    a.*,
+    c.claim_enc_nbr, 
+    c.service_begin_date, 
+    c.service_end_date,
+    g.promise_specialty_desc,
+    k.diag_cd, 
+    k.diag_cd_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+    left join ac_hcdm.dim_member b on b.mci_uniq_id = a.mci_uniq_id
+    inner join AC_HCDM.FACT_PHBH_OUTPATIENT c on c.member_nbr = b.member_nbr
+    INNER JOIN AC_HCDM.BRIDGE_GENERIC_SERVICE_CAT d ON (d.SVC_CAT_GRP_NBR_SK = c.SVC_CAT_GRP_NBR)
+    INNER JOIN AC_HCDM.DIM_GENERIC_SERVICE_CAT e ON (e.SVC_CAT_NBR_SK = d.SVC_CAT_NBR_SK)
+    inner join ac_hcdm.dim_dhs_provider g on (g.dhs_provider_nbr_sk = c.billing_dhs_provider_nbr_sk)
+    INNER JOIN AC_HCDM.BRIDGE_DIAGNOSIS_CODE h ON h.DIAG_CD_GRP_NBR_SK = c.DIAG_CD_GRP_NBR_SK
+    INNER JOIN AC_HCDM.DIM_DIAGNOSIS_CODE k ON k.DIAG_CD_NBR_SK = h.DIAG_CD_NBR_SK
+where 
+    e.svc_cat_system = \'ER Indicator\'
+    and e.svc_cat_desc = \'Non-Emergency Room Service\'
+    and c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
+
+# Make var names lowercase
+
+names(non_er_outpatient_claims_children) <- tolower(names(non_er_outpatient_claims_children))
+
+#--------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for children and adults
+
+non_er_outpatient_claims <- bind_rows(non_er_outpatient_claims_adults %>% mutate(child = 0), 
+                                      non_er_outpatient_claims_children %>% mutate(child = 1)) %>%
 
 # Reformat dates as R date format
 
-non_er_outpatient_claims <- non_er_outpatient_claims %>%
   mutate_at(vars(service_begin_date, service_end_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -754,9 +1382,13 @@ non_er_outpatient_claims <- non_er_outpatient_claims %>%
 save(non_er_outpatient_claims, file = paste0(filepath, "/Data/Medicaid claims data/non_er_outpatient_claims.rda"))
 
 #--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
 # ER outpatient care
 
-er_outpatient_claims <- dbGetQuery(conn = db_con, 
+#--------------------------------------------------------------------------
+# Adults
+
+er_outpatient_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct 
     a.*,
@@ -792,11 +1424,58 @@ where
 
 # Make var names lowercase
 
-names(er_outpatient_claims) <- tolower(names(er_outpatient_claims))
+names(er_outpatient_claims_adults) <- tolower(names(er_outpatient_claims_adults))
+
+#--------------------------------------------------------------------------
+# Children
+
+er_outpatient_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct 
+    a.*,
+    c.claim_enc_nbr, 
+    c.service_begin_date, 
+    c.service_end_date,
+    g.promise_specialty_desc,
+    k.diag_cd, 
+    k.diag_cd_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+    left join ac_hcdm.dim_member b on b.mci_uniq_id = a.mci_uniq_id
+    inner join AC_HCDM.FACT_PHBH_OUTPATIENT c on c.member_nbr = b.member_nbr
+    INNER JOIN AC_HCDM.BRIDGE_GENERIC_SERVICE_CAT d ON (d.SVC_CAT_GRP_NBR_SK = c.SVC_CAT_GRP_NBR)
+    INNER JOIN AC_HCDM.DIM_GENERIC_SERVICE_CAT e ON (e.SVC_CAT_NBR_SK = d.SVC_CAT_NBR_SK)
+    inner join ac_hcdm.dim_dhs_provider g on (g.dhs_provider_nbr_sk = c.billing_dhs_provider_nbr_sk)
+    INNER JOIN AC_HCDM.BRIDGE_DIAGNOSIS_CODE h ON h.DIAG_CD_GRP_NBR_SK = c.DIAG_CD_GRP_NBR_SK
+    INNER JOIN AC_HCDM.DIM_DIAGNOSIS_CODE k ON k.DIAG_CD_NBR_SK = h.DIAG_CD_NBR_SK
+where 
+    e.svc_cat_system = \'ER Indicator\'
+    and e.svc_cat_desc = \'Emergency Room Service\'
+    and c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
+
+# Make var names lowercase
+
+names(er_outpatient_claims_children) <- tolower(names(er_outpatient_claims_children))
+
+#--------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for adults and children
+
+er_outpatient_claims <- bind_rows(er_outpatient_claims_children %>% mutate(child = 1), 
+                                  er_outpatient_claims_adults %>% mutate(child = 0)) %>%
 
 # Reformat dates as R date format
 
-er_outpatient_claims <- er_outpatient_claims %>%
   mutate_at(vars(service_begin_date, service_end_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -804,16 +1483,25 @@ er_outpatient_claims <- er_outpatient_claims %>%
 save(er_outpatient_claims, file = paste0(filepath, "/Data/Medicaid claims data/er_outpatient_claims.rda"))
 ```
 
-### Mental health claims since 1/1/2022
+#### Mental health claims since 1/1/2022
 
-```{r}
+```{r, eval = TRUE}
+
+#---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+# Pull raw data
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
 #---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
 # Substance use disorder service claims
 
-sud_claims <- dbGetQuery(conn = db_con, 
+#---------------------------------------------------------------------------------
+# Adults
+
+sud_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct
     a.*,
@@ -848,11 +1536,57 @@ where
 
 # Make var names lowercase
 
-names(sud_claims) <- tolower(names(sud_claims))
+names(sud_claims_adults) <- tolower(names(sud_claims_adults))
 
+#---------------------------------------------------------------------------------
+# Children
+
+sud_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct
+    a.*,
+    c.claim_number, 
+    c.svc_start_dt, 
+    c.svc_end_dt, 
+    c.payer, 
+    c.office, 
+    c.service_code, 
+    c.service_name, 
+    c.cost_ctr_common_desc, 
+    c.service_category, 
+    c.prvdr_name, 
+    c.cnty_tot, 
+    c.tot_units, 
+    c.diagnosis_desc, 
+    c.diagnosis_common_sort
+from (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+inner join dare_health.sud_fy1518 @DW c on a.mci_uniq_id = c.mci_uniq_id
+where
+    c.svc_start_dt >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+
+# Make var names lowercase
+
+names(sud_claims_children) <- tolower(names(sud_claims_children))
+
+#---------------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for children and adults
+
+sud_claims <- bind_rows(sud_claims_children %>% mutate(child = 1), 
+                        sud_claims_adults %>% mutate(child = 0)) %>%
+  
 # Reformat dates in R date format
 
-sud_claims <- sud_claims %>%
     mutate_at(vars(svc_start_dt, svc_end_dt), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -860,9 +1594,13 @@ sud_claims <- sud_claims %>%
 save(sud_claims, file = paste0(filepath, "/Data/Medicaid claims data/sud_claims.rda"))
 
 #---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
 # Non-SUD behavioral health claims
 
-mh_claims <- dbGetQuery(conn = db_con, 
+#---------------------------------------------------------------------------------
+# Adults
+
+mh_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select distinct
     a.*,
@@ -899,11 +1637,59 @@ where
 
 # Make var names lowercase
 
-names(mh_claims) <- tolower(names(mh_claims))
+names(mh_claims_adults) <- tolower(names(mh_claims_adults))
+
+#---------------------------------------------------------------------------------
+# Children
+
+mh_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct
+    a.*,
+    c.service_rendered_row_id, 
+    c.svc_start_dt, 
+    c.svc_end_dt, 
+    c.payer,
+    c.office, 
+    c.service_code,
+    replace(c.service_name, chr(0), \' \') as service_name,
+    c.cost_center, 
+    c.service_category, 
+    c.provider_name,
+    c.cnty_tot, 
+    c.tot_units, 
+    c.diagnosis_code,
+    c.diagnosis_desc, 
+    c.diagnosis_common_sort, 
+    c.diagnosis_cat
+from  (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+inner join dare_health.mh_svc_tableau @DW c on a.mci_uniq_id = c.mci_uniq_id
+where
+    c.svc_start_dt >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+
+# Make var names lowercase
+
+names(mh_claims_children) <- tolower(names(mh_claims_children))
+
+#---------------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for adults and children
+
+mh_claims <- bind_rows(mh_claims_adults %>% mutate(child = 0), 
+                       mh_claims_children %>% mutate(child = 1)) %>%
 
 # Reformat dates in R date format
 
-mh_claims <- mh_claims %>%
     mutate_at(vars(svc_start_dt, svc_end_dt), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -911,11 +1697,15 @@ mh_claims <- mh_claims %>%
 save(mh_claims, file = paste0(filepath, "/Data/Medicaid claims data/mh_claims.rda"))
 
 #---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
 # Payments from the Allegheny County behavioral health managed care organization to health care providers
 
 # Note that these amounts are not the cost of care to Medicaid. This is just an alternative way of quantifying the volume of a person's health care utilization. The 'total charges' field is the amount that the provider billed to CCBH. The 'prvdr paid' field is the amount that CCBH actually paid the provider for the bill.
 
-mh_pymt_amts <- dbGetQuery(conn = db_con, 
+#---------------------------------------------------------------------------------
+# Adults
+
+mh_pymt_amts_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select 
     a.*,
@@ -940,11 +1730,47 @@ where
 
 # Make var names lowercase
 
-names(mh_pymt_amts) <- tolower(names(mh_pymt_amts))
+names(mh_pymt_amts_adults) <- tolower(names(mh_pymt_amts_adults))
+
+#---------------------------------------------------------------------------------
+# Children
+
+mh_pymt_amts_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select 
+    a.*,
+    e.svc_begin_date,
+    e.total_charges, 
+    e.prvdr_paid
+from (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+left join ac_mh.ccbho_member c on a.mci_uniq_id = c.mci_uniq_id
+left join ac_mh.ccbho_claims_paid e on e.recipient_nr = c.ma_recipient_num
+where
+    svc_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+
+# Make var names lowercase
+
+names(mh_pymt_amts_children) <- tolower(names(mh_pymt_amts_children))
+
+#---------------------------------------------------------------------------------
+# Clean the data
+
+# Combine data for adults and children
+
+mh_pymt_amts <- bind_rows(mh_pymt_amts_children %>% mutate(child = 1), 
+                          mh_pymt_amts_adults %>% mutate(child = 0)) %>%
 
 # Reformat dates in R date format
 
-mh_pymt_amts <- mh_pymt_amts %>%
   mutate(svc_begin_date = as.Date(substring(as.character(svc_begin_date), 1, 10), '%Y-%m-%d'))
 
 # Save data
@@ -952,13 +1778,20 @@ mh_pymt_amts <- mh_pymt_amts %>%
 save(mh_pymt_amts, file = paste0(filepath, "/Data/Medicaid claims data/mh_pymt_amts.rda"))
 ```
 
-### Pharmacy claims since 1/1/2022
+#### Pharmacy claims since 1/1/2022
 
-```{r}
+```{r, eval = TRUE}
+
+#---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+# Pull raw data
+
+#---------------------------------------------------------------------------------
+# Adults
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-pharmacy_claims <- dbGetQuery(conn = db_con, 
+pharmacy_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
 'select  
     a.*,
@@ -1005,17 +1838,79 @@ where
 
 # Make var names lowercase
 
-names(pharmacy_claims) <- tolower(names(pharmacy_claims))
+names(pharmacy_claims_adults) <- tolower(names(pharmacy_claims_adults))
+
+#---------------------------------------------------------------------------------
+# Children
+
+pharmacy_claims_children <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select  
+    a.*,
+    e.fact_rx_nbr, 
+    e.dispense_date, 
+    e.prescribed_date, 
+    e.adjudication_date,
+    e.mos, 
+    e.mop,
+    e.dispense_quantity, 
+    e.days_supply,
+    e.standardized_paid_amt, 
+    e.prescription_nbr,
+    e.refill_nbr,
+    e.ndc_drug_cd_nbr, 
+    g.label_name, 
+    g.brand_name, 
+    g.generic_name,
+    g.drug_class,
+    g.dosage_form_code_desc,
+    replace(g.drug_strength_desc, chr(0), \' \') as drug_strength_desc,
+    g.fdb_generic_classes, 
+    g.hic2_desc, 
+    g.hic3_desc,
+    g.generic_ther_class_desc, 
+    g.standard_ther_class_desc
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+  inner join AC_HCDM.DIM_MEMBER c on a.mci_uniq_id = c.mci_uniq_id
+  inner join AC_HCDM.FACT_RX e on c.member_nbr = e.member_nbr
+  left join ac_hcdm.dim_drug g on e.ndc_drug_cd_nbr = g.ndc_drug_cd_nbr
+where
+  e.dispense_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
+
+# Make var names lowercase
+
+names(pharmacy_claims_children) <- tolower(names(pharmacy_claims_children))
+
+#---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+# Clean the data
+
+# Combine the data for children and adults
+
+pharmacy_claims <- bind_rows(pharmacy_claims_children %>% mutate(child = 1), 
+                             pharmacy_claims_adults %>% mutate(child = 0)) %>%
 
 # Reformat dates in R date format
 
-pharmacy_claims <- pharmacy_claims %>%
     mutate_at(vars(dispense_date, prescribed_date, adjudication_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
 
 save(pharmacy_claims, file = paste0(filepath, "/Data/Medicaid claims data/pharmacy_claims.rda"))
 ```
+
+### Create panel outcomes data
+
 
 
 
