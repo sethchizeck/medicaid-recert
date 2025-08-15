@@ -583,6 +583,106 @@ save(medicaid_enrollment_panel_weekly_random_sample, file = paste0(filepath, "/D
 
 # Create outcomes data sets
 
+## CHIP insurance coverage (for children only)
+
+### Pull and clean the data
+
+```{r}
+
+#----------------------------------------------------------------------------
+# Pull raw data
+
+db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
+
+chip_enrollment <- dbGetQuery(conn = db_con, 
+                          statement = 
+'select distinct
+    a.*,
+    e.category, 
+    e.program_status_cd, 
+    e.elig_begin_date, 
+    e.elig_end_date
+from 
+    (select distinct 
+        a.ma_receipt_num, 
+        e.mci_uniq_id
+     from 
+        ac_mh.ccbh_hc_eligibility a
+        left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
+     where
+        a.category = \'MG\'
+        and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
+        and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
+    inner join ac_padhs.client @AC c on c.mci_uniq_id = a.mci_uniq_id
+    inner join ac_padhs.eligibility @AC e on e.padhs_id = c.padhs_id
+where
+    e.category = \'CHP\'') 
+
+# Make var names lowercase
+
+names(chip_enrollment) <- tolower(names(chip_enrollment))
+
+#----------------------------------------------------------------------------
+# Clean the data
+
+# Reformat dates to R date format
+
+chip_enrollment <- chip_enrollment %>%
+  mutate_at(vars(elig_begin_date, elig_end_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d')) %>%
+  
+# Remove enrollment spells that ended before 1/1/2022 or started after 6/30/2025
+  
+  filter(elig_end_date >= as.Date('2022-01-01') | is.na(elig_end_date)) %>%
+  filter(elig_begin_date < as.Date('2025-06-30')) %>%
+  
+# Cap enrollment spells at 6/30/2025
+  
+  mutate(elig_end_date = replace_na(elig_end_date, as.Date('2025-06-30')), 
+         elig_end_date = if_else(elig_end_date > as.Date('2025-06-30'), as.Date('2025-06-30'), elig_end_date))
+
+# Save data
+
+save(chip_enrollment, file = paste0(filepath, "/Data/CHIP insurance enrollment data/chip_enrollment.rda"))
+```
+
+### Create panel outcomes data
+
+```{r}
+
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# CHIP enrollment spells
+
+load(file = paste0(filepath, "/Data/CHIP insurance enrollment data/chip_enrollment.rda"))
+
+#----------------------------------------------------------------------------
+# Create a panel with one obs per person per week that they were enrolled in CHIP between 4/1/2022 and 6/30/2025
+
+# Limit the data to 4/1/2022 to 6/30/2025
+
+chip_enrollment_panel_weekly <- chip_enrollment %>%
+  filter(elig_end_date > as.Date('2022-04-01')) %>%
+  mutate(elig_begin_date = if_else(elig_begin_date < as.Date('2022-04-01'), as.Date('2022-04-01'), elig_begin_date)) %>%
+  
+# Reshape the data to have 1 obs for each week during each enrollment episode in any level of CHIP (ignore the cost-sharing tier info here)
+
+  distinct(ma_receipt_num, mci_uniq_id, elig_begin_date, elig_end_date) %>%
+  group_by(ma_receipt_num, mci_uniq_id, elig_begin_date, elig_end_date) %>%
+  reframe(date = list(seq.Date(from = elig_begin_date,
+                               to = elig_end_date,
+                               by = "week"))) %>%
+  unnest(date) %>%
+  ungroup() %>%
+  distinct(ma_receipt_num, mci_uniq_id, date) %>%
+  mutate(chip_enrolled = 1,
+         calendar_week = as.numeric(floor(difftime(date, as.Date('2022-01-01'), units = "weeks"))) + 1) 
+  
+# Save data
+  
+save(chip_enrollment_panel_weekly, file = paste0(filepath, "/Data/CHIP insurance enrollment data/chip_enrollment_panel_weekly.rda"))
+```
+
 ## Clinical Connect alerts data
 
 ### Pull and clean the data
@@ -708,7 +808,6 @@ clinical_connect_events_children <- dbGetQuery(conn = db_con,
     left join ac_mh.t_ahci_clients e on e.ma_receipt_num = a.ma_receipt_num
 where
     a.category = \'MG\'
-    and a.program_status in (\'27\', \'71\', \'91\')
     and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
     and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18)
 
@@ -757,7 +856,7 @@ save(clinical_connect_events_children, file = paste0(filepath, "/Data/Clinical C
 
 # Load relevant data
 
-load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_children.rda"))
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_adults.rda"))
 
 load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_events_children.rda"))
 
@@ -877,11 +976,17 @@ clinical_connect_outcomes_weekly_panel <- clinical_connect_er_weekly_panel %>%
 save(clinical_connect_outcomes_weekly_panel, file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_outcomes_weekly_panel.rda"))
 ```
 
+## 911 call data
+
+### Pull and clean data
+
+### Create panel outcomes data
+
 ## Medical examiner data
 
 ### Pull and clean the data
 
-```{r, eval = TRUE}
+```{r}
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -950,20 +1055,6 @@ save(medical_examiner_deaths, file = paste0(filepath, "/Data/Medicaid claims dat
 
 ```{r}
 
-```
-
-### Create panel outcomes data
-
-```{r}
-
-```
-
-## UPMC claims data 
-
-### Pull and clean the data
-
-```{r, eval = TRUE}
-
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 # Pull raw data
@@ -973,20 +1064,20 @@ save(medical_examiner_deaths, file = paste0(filepath, "/Data/Medicaid claims dat
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-upmc_claims_adults <- dbGetQuery(conn = db_con, 
+acdhs_funded_mh_claims_adults <- dbGetQuery(conn = db_con, 
                           statement = 
-'select 
+'select distinct
     a.*,
-    c.CLAIM_NBR, 
-    c.claim_line_nbr, 
-    c.service_begin_date,
-    c.ICD_PROCEDURE_ID,
-    c.icd_procedure_desc, 
-    c.cpt4_code, 
-    c.cpt4_desc,
-    e.icd_diagnosis_id, 
-    e.icd_diagnosis_desc
-from 
+    c.svc_begin_date, 
+    c.svc_end_date, 
+    c.service_code, 
+    c.service_description, 
+    c.dx_code_1, 
+    c.dx_code_2, 
+    c.dx_desc, 
+    c.dx_category_desc,
+    c.dx_category_type 
+FROM
     (select distinct 
         a.ma_receipt_num, 
         e.mci_uniq_id
@@ -998,32 +1089,33 @@ from
         and a.program_status in (\'27\', \'71\', \'91\')
         and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
         and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 >= 18) a
-    inner join ac_upmc.upmc_claim_proc c on c.mci_uniq_id = a.mci_uniq_id
-    left join ac_upmc.upmc_claim_dx e on e.master_member_id = c.master_member_id and e.claim_nbr = c.claim_nbr
-where
-    c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+     inner join AC_MH.UNIFIED_BH_OLAP c on c.mci_uniq_id = a.mci_uniq_id
+WHERE 
+  c.DHS_OFFICE_NAME = \'ALMH\'
+  AND c.APPROVED_DENIED = \'APPROVED\'
+  and c.svc_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
 
 # Make var names lowercase
 
-names(upmc_claims_adults) <- tolower(names(upmc_claims_adults))
+names(acdhs_funded_mh_claims_adults) <- tolower(names(acdhs_funded_mh_claims_adults))
 
 #----------------------------------------------------------------------------
 # Children
 
-upmc_claims_children <- dbGetQuery(conn = db_con, 
+acdhs_funded_mh_claims_children <- dbGetQuery(conn = db_con, 
                           statement = 
-'select 
+'select distinct
     a.*,
-    c.CLAIM_NBR, 
-    c.claim_line_nbr, 
-    c.service_begin_date,
-    c.ICD_PROCEDURE_ID,
-    c.icd_procedure_desc, 
-    c.cpt4_code, 
-    c.cpt4_desc,
-    e.icd_diagnosis_id, 
-    e.icd_diagnosis_desc
-from 
+    c.svc_begin_date, 
+    c.svc_end_date, 
+    c.service_code, 
+    c.service_description, 
+    c.dx_code_1, 
+    c.dx_code_2, 
+    c.dx_desc, 
+    c.dx_category_desc,
+    c.dx_category_type 
+FROM
     (select distinct 
         a.ma_receipt_num, 
         e.mci_uniq_id
@@ -1034,14 +1126,15 @@ from
         a.category = \'MG\'
         and a.elig_to_date >= to_date(\'01-APR-2023\', \'DD-MON-YYYY\')
         and TRUNC(to_date(\'01-Apr-2023\',\'DD-MON-YYYY\') - e.date_of_birth) / 365.25 < 18) a
-    inner join ac_upmc.upmc_claim_proc c on c.mci_uniq_id = a.mci_uniq_id
-    left join ac_upmc.upmc_claim_dx e on e.master_member_id = c.master_member_id and e.claim_nbr = c.claim_nbr
-where
-    c.service_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')') 
+     inner join AC_MH.UNIFIED_BH_OLAP c on c.mci_uniq_id = a.mci_uniq_id
+WHERE 
+  c.DHS_OFFICE_NAME = \'ALMH\'
+  AND c.APPROVED_DENIED = \'APPROVED\'
+  and c.svc_begin_date >= to_date(\'01-JAN-2022\', \'DD-MON-YYYY\')')
 
 # Make var names lowercase
 
-names(upmc_claims_children) <- tolower(names(upmc_claims_children))
+names(acdhs_funded_mh_claims_children) <- tolower(names(acdhs_funded_mh_claims_children))
 
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
@@ -1049,16 +1142,42 @@ names(upmc_claims_children) <- tolower(names(upmc_claims_children))
 
 # Combine data for adults and children
 
-upmc_claims <- bind_rows(upmc_claims_adults %>% mutate(child = 0), 
-                         upmc_claims_children %>% mutate(child = 1)) %>%
+acdhs_funded_mh_claims <- bind_rows(acdhs_funded_mh_claims_children %>% mutate(child = 1), 
+                         acdhs_funded_mh_claims_adults %>% mutate(child = 0)) %>%
 
 # Reformat dates to R date format
 
-  mutate_at(vars(service_begin_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
+  mutate_at(vars(svc_begin_date, svc_end_date), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d'))
 
 # Save data
 
-save(upmc_claims, file = paste0(filepath, "/Data/UPMC claims data/upmc_claims.rda"))
+save(acdhs_funded_mh_claims, file = paste0(filepath, "/Data/ACDHS-funded MH claims data/acdhs_funded_mh_claims.rda"))
+```
+
+### Create panel outcomes data
+
+```{r}
+
+```
+
+## UPMC private insurance coverage
+
+### Pull and clean the data
+
+```{r}
+
+# The structure of the UPMC claims data does not currently allow us to know the person's historical spells of enrollment in UPMC private insurance.  Catherine Jensen can give me an update on this.
+```
+
+### Create panel outcomes data
+
+## UPMC claims data for CHIP and private insurance
+
+### Pull and clean the data
+
+```{r}
+
+# The structure of the UPMC claims data does not currently allow us to know what type of insurance a person had for a given claim. But we are working on getting better data. So we might be able to get this data going forward. Catherine Jensen can give me an update on this. 
 ```
 
 ### Create panel outcomes data
@@ -1069,7 +1188,7 @@ save(upmc_claims, file = paste0(filepath, "/Data/UPMC claims data/upmc_claims.rd
 
 #### Physical health claims since 1/1/2022
 
-```{r, eval = TRUE}
+```{r}
 
 #--------------------------------------------------------------------------
 #--------------------------------------------------------------------------
@@ -1485,7 +1604,9 @@ save(er_outpatient_claims, file = paste0(filepath, "/Data/Medicaid claims data/e
 
 #### Mental health claims since 1/1/2022
 
-```{r, eval = TRUE}
+*Note: Revise all of the SQL code to pull this data from the AC_MH.UNIFIED_BH_OLAP table. See my email thread with Ping
+
+```{r}
 
 #---------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------
@@ -1780,7 +1901,7 @@ save(mh_pymt_amts, file = paste0(filepath, "/Data/Medicaid claims data/mh_pymt_a
 
 #### Pharmacy claims since 1/1/2022
 
-```{r, eval = TRUE}
+```{r}
 
 #---------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------
@@ -1910,6 +2031,18 @@ save(pharmacy_claims, file = paste0(filepath, "/Data/Medicaid claims data/pharma
 ```
 
 ### Create panel outcomes data
+
+## Prescription Drug Monitoring Program data (fills of controlled substances)
+
+### Pull and clean the data
+
+```{r}
+
+# Lisa Kessler says I am not allowed to view this data, but I can send her my analytic data set and she can merge in the outcomes from this data and run my code. 
+```
+
+
+
 
 
 
