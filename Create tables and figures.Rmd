@@ -1,0 +1,382 @@
+---
+title: "Medicaid recertification requirements study - Create tables and figures"
+author: "Seth Chizeck & Lori Leu"
+date: "`r Sys.Date()`"
+knit: (function(rmdfile, ...) { rmarkdown::render(rmdfile, output_file = 'Medicaid recert deadlines - Tables and figures.pdf', output_dir = 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis/Tables and figures') })
+output: 
+  bookdown::pdf_document2:
+      toc: FALSE
+      number_sections: FALSE
+      keep_tex: TRUE
+header-includes: 
+  - \setlength{\parindent}{2em}
+  - \setlength{\parskip}{0em}
+  - \usepackage{indentfirst, setspace, booktabs, floatrow, longtable, pdflscape, dcolumn, adjustbox, graphicx, threeparttablex}
+  - \usepackage[skip = 0.5\baselineskip]{caption}
+  - \floatplacement{figure}{H}
+  - \floatsetup[figure]{capposition = top}
+  - \floatsetup[table]{capposition = top}
+  - \newcommand{\blandscape}{\begin{landscape}}
+  - \newcommand{\elandscape}{\end{landscape}}
+linkcolor: red
+---
+
+```{r, include = FALSE}
+
+# Clear space
+
+rm(list=ls())
+
+# Load packages 
+
+library(cowplot)
+library(data.table)
+library(fixest)
+library(kableExtra)
+library(lubridate)
+library(sandwich)
+library(scales)
+library(tidyverse)
+
+# Set chunk options
+
+knitr::opts_chunk$set(echo = FALSE, eval = FALSE, message = FALSE, warning = FALSE, cache = FALSE)
+
+options(scipen=999)
+
+# Set filepath 
+
+filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Medicaid recertification deadlines project/Data analysis'
+```
+
+# Sample descriptions
+
+## Breakdown of reasons for Medicaid termination
+
+```{r}
+
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Sample termination reasons
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations.rda"))
+
+#----------------------------------------------------------------------------
+# Analyze data
+
+dt <- sample_terminations %>% 
+  filter(!is.na(termination_reason_desc)) %>% 
+  group_by(termination_reason_desc) %>%
+  summarise(count = n()) %>%
+  ungroup()
+```
+
+# Event study models
+
+## Effects on Medicaid enrollment 
+
+```{r}
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Week-level Medicaid enrollment panel
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Test for parallel trends in pre-treatment period
+
+pre_trend_data <- medicaid_enrollment_panel_weekly_random_sample %>% 
+  filter(tau_week < 0)
+
+pre_trend_test <- feols(medicaid_enrolled ~ tau_week | person_deadline_id + calendar_week,
+                        data = pre_trend_data,
+                        cluster = "mci_uniq_id")
+
+summary(pre_trend_test)
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Benchmark models
+
+#----------------------------------------------------------------------------
+# Basic diff-in-diff model
+
+basic_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week, 
+                     data = medicaid_enrollment_panel_weekly_random_sample,
+                     cluster = "mci_uniq_id")  
+
+summary(basic_model)
+
+#----------------------------------------------------------------------------
+# Basic event study model
+
+# Event study with person-deadline fixed effects
+
+event_study <- feols(medicaid_enrolled ~ i(tau_week, ref = -1) | person_deadline_id + calendar_week,
+                     data = medicaid_enrollment_panel_weekly_random_sample,
+                     cluster = "mci_uniq_id")
+
+summary(event_study)
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Robustness checks
+
+#----------------------------------------------------------------------------
+# Exclude observations very close to the recert deadline ("donut hole")
+
+donut_data <- medicaid_enrollment_panel_weekly %>% 
+  filter(abs(tau_week) > 1)
+
+donut_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
+                     data = donut_data,
+                     cluster = "mci_uniq_id")
+
+#----------------------------------------------------------------------------
+# Different time windows - use a function to recreate data with different window
+
+narrow_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
+                      data = medicaid_enrollment_panel_weekly %>%
+                             filter(abs(tau_week) <= 12),
+                      cluster = "mci_uniq_id")
+
+#----------------------------------------------------------------------------
+# Two-way clustering 
+
+twoway_cluster <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
+                        data = medicaid_enrollment_panel_weekly,
+                        cluster = c("mci_uniq_id", "calendar_week"))
+```
+
+### Figure - Event study plot
+
+```{r}
+
+# Extract coefficients for event study plot
+
+event_coefs <- data.frame(summary(event_study)$coefficients) %>%
+  rownames_to_column() %>%
+  inner_join(data.frame(summary(event_study)$se) %>% rownames_to_column(), 
+             by = c('rowname')) %>%
+  rename(tau = 1, effect = 2, std_err = 3) %>%
+  mutate(ci_lower = effect - 1.96 * std_err,
+         ci_upper = effect + 1.96 * std_err,
+         tau = as.numeric(str_replace(tau, "tau_week::", ""))) %>%
+  
+  # Add reference point (week -1 = 0)
+  
+  bind_rows(data.frame(tau = -1, effect = 0, std_err = 0, ci_lower = 0, ci_upper = 0)) %>%
+
+  # Convert effects to percentage points
+  
+  mutate_at(vars(effect, ci_lower, ci_upper), ~ . * 100)
+
+# Create event study plot
+
+ggplot(event_coefs, aes(x = tau, y = effect)) +
+  geom_point() +
+  geom_line() +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.3) +
+  geom_vline(xintercept = -0.5, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = 0, linetype = "solid", color = "gray") +
+  scale_x_continuous(breaks = seq(-52,52,4),
+                     limits = c(-52,52)) +
+  scale_y_continuous(breaks = seq(-25,5,5),
+                     limits = c(-25,5)) +
+  labs(x = "Weeks Since Recertification Deadline", y = "Treatment Effect (Percentage Points)") +
+  theme_bw() 
+
+# Save graph image
+
+ggsave(paste0(filepath, "/Tables and figures/effect-on-medicaid-enrollment-event-study.png"),
+       plot = last_plot(),
+       width = 7,
+       height = 5)
+```
+
+### Table - Effects of recert deadlines on likelihood of being enrolled in Medicaid, various specifications
+
+```{r}
+
+# Compare different specifications
+
+model_comparison <- list("Basic DD" = basic_model,
+                        "Donut Hole" = donut_model,
+                        "Narrow Window" = narrow_model,
+                        "Two-way Cluster" = twoway_cluster)
+
+# Print table
+
+etable(model_comparison, 
+       keep = "treated",
+       title = "Diff-in-Diff Results: Effect of Recertification on Medicaid Enrollment")
+```
+
+### Figure - Descriptive likelihood of Medicaid enrollment by week relative to recert deadline
+
+```{r}
+
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Week-level Medicaid enrollment panel
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
+
+#----------------------------------------------------------------------------
+# Analyze data
+
+# Calc the % of the sample that was enrolled in Medicaid in each week between +/- 365 days of their recert deadline
+
+dt <- medicaid_enrollment_panel_weekly_random_sample %>%
+  group_by(tau_week) %>%
+  summarise(pct_medicaid_enrolled = mean(medicaid_enrolled)) %>%
+  ungroup() 
+
+#----------------------------------------------------------------------------
+# Create graph
+
+dt %>%
+  ggplot(mapping = aes(x = tau_week, y = pct_medicaid_enrolled)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(aes(xintercept = 0), color = "red", linetype = "dashed") + 
+  theme_bw() +
+  scale_x_continuous(breaks = seq(-55,55,5),
+                     limits = c(-55,55)) +
+  scale_y_continuous(breaks = seq(0,1,0.1),
+                     limits = c(0,1),
+                     labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Weeks since recert deadline", y = "Pct of sample enrolled in Medicaid", title = "Medicaid enrollment rates over time relative to recertification deadline") + 
+  theme(panel.background = element_blank(), 
+        legend.title = element_blank(),
+        legend.position = 'bottom',
+        plot.title = element_text(size = 11),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.caption = element_text(hjust = 0))
+
+# Save graph image
+
+ggsave(paste0(filepath, "/Tables and figures/enrollment-rates-relative-to-recert-deadline.png"),
+  plot = last_plot(),
+  width = 7,
+  height = 5)
+```
+
+## Effects on hospital alert outcomes
+
+```{r}
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Week-level Medicaid enrollment panel
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
+
+# Week-level Clinical Connect Alert outcomes panel
+
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_outcomes_weekly_panel.rda"))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Prepare data for analysis
+
+# Combine the Medicaid enrollment panel with the outcomes data
+
+dt <- medicaid_enrollment_panel_weekly_random_sample %>%
+  left_join(clinical_connect_outcomes_weekly_panel, by = c('mci_uniq_id', 'calendar_week')) 
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Benchmark models
+
+#----------------------------------------------------------------------------
+# Basic diff-in-diff model
+
+basic_model <- feols(had_er_visit ~ treat | person_deadline_id + calendar_week, 
+                     data = dt,
+                     cluster = "mci_uniq_id")  
+
+summary(basic_model)
+
+#----------------------------------------------------------------------------
+# Basic event study model
+
+# Event study with person-deadline fixed effects
+
+event_study <- feols(had_er_visit ~ i(tau_week, ref = -1) | person_deadline_id + calendar_week,
+                     data = dt,
+                     cluster = "mci_uniq_id")
+
+summary(event_study)
+```
+
+### Figure - Hospital Alert outcomes by week relative to recert deadline
+
+```{r}
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Load relevant data
+
+# Week-level Medicaid enrollment panel
+
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment_panel_weekly_random_sample.rda"))
+
+# Week-level Clinical Connect Alert outcomes panel
+
+load(file = paste0(filepath, "/Data/Clinical Connect health care data/clinical_connect_outcomes_weekly_panel.rda"))
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Prepare data for analysis
+
+# Combine the Medicaid enrollment panel with the outcomes data
+
+dt <- medicaid_enrollment_panel_weekly_random_sample %>%
+  left_join(clinical_connect_outcomes_weekly_panel, by = c('mci_uniq_id', 'calendar_week')) 
+
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# Create graphs
+
+#----------------------------------------------------------------------------
+# Weekly likelihood of having an ER visit
+
+dt %>%
+  group_by(tau_week) %>%
+  summarise(had_er_visit = mean(had_er_visit, na.rm = TRUE)) %>%
+  ggplot(mapping = aes(x = tau_week, y = had_er_visit)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(aes(xintercept = 0), color = "red", linetype = "dashed") + 
+  theme_bw() +
+  scale_x_continuous(breaks = seq(-55,55,5),
+                     limits = c(-55,55)) +
+  scale_y_continuous(breaks = seq(0,0.05,0.01),
+                     limits = c(0,0.05),
+                     labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Weeks since recert deadline", y = "Likelihood of having an ER visit", title = "Had an ER visit") + 
+  theme(panel.background = element_blank(), 
+        legend.title = element_blank(),
+        legend.position = 'bottom',
+        plot.title = element_text(size = 11),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.caption = element_text(hjust = 0))
+
+# Save graph image
+
+ggsave(paste0(filepath, "/Tables and figures/cca-had-er-visit-relative-to-recert-deadline.png"),
+  plot = last_plot(),
+  width = 7,
+  height = 5)
+```
