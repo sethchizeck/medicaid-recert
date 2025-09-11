@@ -267,6 +267,10 @@ sample_recert_deadlines <- bind_rows(sample_recert_deadlines_adults %>% mutate(c
 
   mutate_at(vars(batch_date, semiannual_recert_deadline, annual_recert_deadline), ~ as.Date(substring(as.character(.), 1, 10), '%Y-%m-%d')) %>%
   
+# Remove any entries that were created ('batch_date') prior to 4/1/2023. We don't care about these b/c there was a disenrollment freeze in effect prior to 4/1/2023 so all of the recert deadlines that were assigned prior to that date are moot
+  
+  filter(batch_date >= as.Date('2023-04-01')) %>%
+  
 # Reshape the data to have one row per recert deadline
   
   gather(variable, recert_deadline, -ma_receipt_num, -mci_uniq_id, -child, -batch_date) %>%
@@ -275,14 +279,15 @@ sample_recert_deadlines <- bind_rows(sample_recert_deadlines_adults %>% mutate(c
   
 # Deduplicate the data. Remove any clients who have multiple Medicaid ID numbers associated with the same MCI unique ID. 
   
-  distinct(ma_receipt_num, mci_uniq_id, child, recert_deadline) 
+  distinct(ma_receipt_num, mci_uniq_id, child, batch_date, recert_deadline) 
 
 unique_clients <- sample_recert_deadlines %>%
   distinct(ma_receipt_num, mci_uniq_id) %>%
   group_by(mci_uniq_id) %>%
   mutate(count = n()) %>%
   ungroup() %>%
-  filter(count == 1)
+  filter(count == 1) %>%
+  select(-count)
 
 sample_recert_deadlines <- sample_recert_deadlines %>%
   inner_join(unique_clients, by = c('ma_receipt_num', 'mci_uniq_id')) %>%
@@ -290,14 +295,49 @@ sample_recert_deadlines <- sample_recert_deadlines %>%
   
 # Keep only the recertification deadlines from between 4/1/2023 and 6/30/2025 
   
-  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2025-06-30')) 
+  filter(recert_deadline >= as.Date('2023-04-01') & recert_deadline <= as.Date('2025-06-30')) %>%
+  
+# For each recert deadline, keep only the earliest value of 'batch date'
+  
+  group_by(mci_uniq_id, child, recert_deadline) %>%
+  top_n(-1, batch_date) %>%
+  ungroup() %>%
+  
+#-------------------------------------------------------------------------
+# Flag any recert deadlines that were 'superseded' by a later deadline. We define deadline X as superseded if the person was assigned a new deadline Y that is after X with a batch date that is more than 60 days before X and is not shared with any other batch date among the client's obs. If the batch date for new deadline Y is less than 60 days before deadline X, then it represents a routine coverage renewal, not a superseding of the old deadline. 
+
+  arrange(mci_uniq_id, batch_date) %>%
+  group_by(mci_uniq_id, child) %>%
+  mutate(superseded_deadline = as.numeric(
+         sapply(1:n(), function(i) {
+        current_batch_date <- batch_date[i]
+        current_recert_deadline <- recert_deadline[i]
+        
+        # Check if there exists another observation that supersedes this one
+        # The other observation must have:
+        # 1. batch_date at least 60 days prior to current recert_deadline
+        # 2. recert_deadline after current recert_deadline
+        # 3. batch_date is unique (not shared with any other observation for this client)
+        
+        # Find all observations that meet the first two criteria
+        potential_superseding <- which(
+          batch_date <= (current_recert_deadline - 60) & 
+            recert_deadline > current_recert_deadline)
+        
+        # Check if any of these have unique batch dates
+        any(sapply(potential_superseding, function(j) {
+          # Count how many times this batch_date appears in the dataset
+          sum(batch_date == batch_date[j]) == 1
+        }))}))) %>%
+  ungroup() %>%
+  select(-batch_date)
 
 #-------------------------------------------------------------------------
 # Remove any recertification deadlines that were >=2 deadlines into the future at the time the person left Medicaid. We can safely remove these deadlines b/c they were non-binding and they could not have induced a pre-treatment voluntary withdrawal. For example, let’s say a person enrolls in Medicaid on 1/1/2024. They are assigned a 6-month recert deadline of 6/1/2024 and a 12-month deadline of 1/1/2025. They voluntarily withdraw from Medicaid on 5/25/2024 and do not re-enroll before 1/1/2025. In this case we’d want to keep the 6/1/2024 deadline in the data but drop the 1/1/2025 deadline. The 1/1/2025 deadline plays no role in the person’s decision-making, and if we retain it in the data then it only serves to dilute the treatment effects because it’s an empty, meaningless deadline.
 
 # Identify the recertification deadlines that are at least two deadlines after the most recent deadline date on which the person was enrolled in Medicaid
 
-sample_recert_deadlines <- sample_recert_deadlines %>%
+deadlines_to_drop <- sample_recert_deadlines %>%
   left_join(sample_enrollment_dates, by = c('mci_uniq_id', 'child')) %>%
   mutate(elig_to_date = replace_na(elig_to_date, Sys.Date()),
          on_medicaid_as_of_deadline = ifelse(recert_deadline >= elig_from_date & recert_deadline <= elig_to_date, 1, 0)) %>%
@@ -317,9 +357,12 @@ sample_recert_deadlines <- sample_recert_deadlines %>%
   mutate(drop = ifelse(elig_to_date > prior_recert_deadline & elig_to_date < recert_deadline, 1, 0)) %>%
   group_by(mci_uniq_id, child, recert_deadline, multiple_deadlines_since_being_on_medicaid) %>%
   summarise(drop = ifelse(sum(drop, na.rm = TRUE) > 0, 1, 0)) %>%
-  ungroup() %>%
+  ungroup() 
+
+sample_recert_deadlines <- sample_recert_deadlines %>%
+  left_join(deadlines_to_drop, by = c('mci_uniq_id', 'child', 'recert_deadline')) %>%
   filter(multiple_deadlines_since_being_on_medicaid + drop < 2) %>%
-  select(mci_uniq_id, child, recert_deadline)
+  select(mci_uniq_id, child, recert_deadline, superseded_deadline)
   
 # Save data
 
