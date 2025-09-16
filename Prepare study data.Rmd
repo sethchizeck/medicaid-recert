@@ -43,7 +43,7 @@ filepath <- 'C:/Users/K011014/OneDrive - Allegheny County/Medicaid/Effect of Med
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-sample_enrollment_dates_adults <- dbGetQuery(conn = db_con, 
+sample_enrollment_dates_adults_raw <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -69,16 +69,16 @@ from
 
 # Make var names lowercase
 
-names(sample_enrollment_dates_adults) <- tolower(names(sample_enrollment_dates_adults))
+names(sample_enrollment_dates_adults_raw) <- tolower(names(sample_enrollment_dates_adults_raw))
 
 # Save data
 
-save(sample_enrollment_dates_adults, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_adults.rda"))
+save(sample_enrollment_dates_adults_raw, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_adults_raw.rda"))
 
 #-------------------------------------------------------------------------
 # Adults
 
-sample_enrollment_dates_children <- dbGetQuery(conn = db_con, 
+sample_enrollment_dates_children_raw <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_children_04012023 as
 (select distinct 
@@ -103,11 +103,11 @@ from
 
 # Make var names lowercase
 
-names(sample_enrollment_dates_children) <- tolower(names(sample_enrollment_dates_children))
+names(sample_enrollment_dates_children_raw) <- tolower(names(sample_enrollment_dates_children_raw))
 
 # Save data
 
-save(sample_enrollment_dates_children, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children.rda"))
+save(sample_enrollment_dates_children_raw, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children_raw.rda"))
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -115,14 +115,14 @@ save(sample_enrollment_dates_children, file = paste0(filepath, "/Data/Medicaid e
 
 # Load relevant data
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_adults.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_adults_raw.rda"))
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates_children_raw.rda"))
 
 # Combine the adult and child samples. 
 
-sample_enrollment_dates <- bind_rows(sample_enrollment_dates_adults %>% mutate(child = 0), 
-                                     sample_enrollment_dates_children %>% mutate(child = 1)) %>%
+sample_enrollment_dates <- bind_rows(sample_enrollment_dates_adults_raw %>% mutate(child = 0), 
+                                     sample_enrollment_dates_children_raw %>% mutate(child = 1)) %>%
 
 # Reformat dates as R date format
 
@@ -172,7 +172,7 @@ save(sample_enrollment_dates, file = paste0(filepath, "/Data/Medicaid enrollment
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-sample_recert_deadlines_adults <- dbGetQuery(conn = db_con, 
+sample_recert_deadlines_adults_raw <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -202,16 +202,16 @@ where
 
 # Make var names lowercase
 
-names(sample_recert_deadlines_adults) <- tolower(names(sample_recert_deadlines_adults))
+names(sample_recert_deadlines_adults_raw) <- tolower(names(sample_recert_deadlines_adults_raw))
 
 # Save data
 
-save(sample_recert_deadlines_adults, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_adults.rda"))
+save(sample_recert_deadlines_adults_raw, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_adults_raw.rda"))
 
 #-------------------------------------------------------------------------
 # Children
 
-sample_recert_deadlines_children <- dbGetQuery(conn = db_con, 
+sample_recert_deadlines_children_raw <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_children_04012023 as
 (select distinct 
@@ -240,11 +240,11 @@ where
 
 # Make var names lowercase
 
-names(sample_recert_deadlines_children) <- tolower(names(sample_recert_deadlines_children))
+names(sample_recert_deadlines_children_raw) <- tolower(names(sample_recert_deadlines_children_raw))
 
 # Save data
 
-save(sample_recert_deadlines_children, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_children.rda"))
+save(sample_recert_deadlines_children_raw, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_children_raw.rda"))
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -252,16 +252,16 @@ save(sample_recert_deadlines_children, file = paste0(filepath, "/Data/Medicaid e
 
 # Load relevant data
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_children.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_children_raw.rda"))
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_adults.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines_adults_raw.rda"))
 
 load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_dates.rda"))
 
 # Combine adult and child samples
 
-sample_recert_deadlines <- bind_rows(sample_recert_deadlines_adults %>% mutate(child = 0), 
-                                     sample_recert_deadlines_children %>% mutate(child = 1)) %>%
+sample_recert_deadlines <- bind_rows(sample_recert_deadlines_adults_raw %>% mutate(child = 0), 
+                                     sample_recert_deadlines_children_raw %>% mutate(child = 1)) %>%
 
 # Convert dates to R date format
 
@@ -382,7 +382,7 @@ save(sample_recert_deadlines, file = paste0(filepath, "/Data/Medicaid enrollment
 
 db_con <- dhs_dw(database = "ACPRD1", stored_db = TRUE, stored_creds = TRUE)
 
-sample_terminations_adults <- dbGetQuery(conn = db_con, 
+sample_terminations_adults_raw <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_adults_04012023 as
 (select distinct 
@@ -411,16 +411,16 @@ where
 
 # Make var names lowercase
 
-names(sample_terminations_adults) <- tolower(names(sample_terminations_adults))
+names(sample_terminations_adults_raw) <- tolower(names(sample_terminations_adults_raw))
 
 # Save data
 
-save(sample_terminations_adults, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_adults.rda"))
+save(sample_terminations_adults_raw, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_adults_raw.rda"))
 
 #-------------------------------------------------------------------------
 # Children
 
-sample_terminations_children <- dbGetQuery(conn = db_con, 
+sample_terminations_children_raw <- dbGetQuery(conn = db_con, 
                           statement = 
 'with medicaid_magi_children_04012023 as
 (select distinct 
@@ -449,11 +449,11 @@ where
 
 # Make var names lowercase
 
-names(sample_terminations_children) <- tolower(names(sample_terminations_children))
+names(sample_terminations_children_raw) <- tolower(names(sample_terminations_children_raw))
 
 # Save data
 
-save(sample_terminations_children, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_children.rda"))
+save(sample_terminations_children_raw, file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_children_raw.rda"))
 
 #---------------------------------------------------------------------------
 #---------------------------------------------------------------------------
@@ -461,14 +461,14 @@ save(sample_terminations_children, file = paste0(filepath, "/Data/Medicaid enrol
 
 # Load relevant data
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_adults.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_adults_raw.rda"))
 
-load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_children.rda"))
+load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations_children_raw.rda"))
 
-# Combine the adult and child samples. 
+# Combine the adult and child samples 
 
-sample_terminations <- bind_rows(sample_terminations_adults %>% mutate(child = 0), 
-                                sample_terminations_children %>% mutate(child = 1)) %>%
+sample_terminations <- bind_rows(sample_terminations_adults_raw %>% mutate(child = 0), 
+                                sample_terminations_children_raw %>% mutate(child = 1)) %>%
 
 # Reformat dates as R date format
 
@@ -518,16 +518,6 @@ load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_enrollment_d
 
 load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_recert_deadlines.rda"))
 
-random_sample <- sample_recert_deadlines %>% 
-  distinct(mci_uniq_id) %>%
-  slice_sample(n = 10)
-
-sample_enrollment_dates <- sample_enrollment_dates %>%
-  inner_join(random_sample, by = c('mci_uniq_id'))
-
-sample_recert_deadlines <- sample_recert_deadlines %>%
-    inner_join(random_sample, by = c('mci_uniq_id'))
-
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 # Create week-level panel data
@@ -539,22 +529,22 @@ sample_recert_deadlines <- sample_recert_deadlines %>%
 recert_date_window_372 <- sample_recert_deadlines %>%
   filter(recert_deadline <= as.Date('2024-06-30')) %>%
   
-# Create a unique ID for each person and recert deadline
-
+  # Create a unique ID for each person and recert deadline
+  
   arrange(mci_uniq_id, recert_deadline) %>%
   group_by(mci_uniq_id, child) %>%
   mutate(deadline_counter = sequence(n())) %>%
   ungroup() %>%
   mutate(person_deadline_id = paste0(mci_uniq_id, "_", deadline_counter)) %>%
   
-# Create the grid of dates
-
+  # Create the grid of dates
+  
   mutate(start_date = recert_deadline - 372, 
          end_date = pmin(recert_deadline + 372, as.Date('2025-06-30'))) %>%
   group_by(mci_uniq_id, person_deadline_id, child, recert_deadline) %>%
   reframe(date = seq.Date(from = start_date,
-                         to = end_date,
-                         by = "day")) %>%
+                          to = end_date,
+                          by = "day")) %>%
   ungroup() 
 
 #----------------------------------------------------------------------------
@@ -565,27 +555,27 @@ recert_date_window_372 <- sample_recert_deadlines %>%
 enrollment_days <- sample_enrollment_dates %>%
   inner_join(sample_recert_deadlines %>% distinct(mci_uniq_id), by = c('mci_uniq_id')) %>%
   
-# Remove enrollment episodes where the start date is after 6/30/2025
-
+  # Remove enrollment episodes where the start date is after 6/30/2025
+  
   filter(elig_from_date <= as.Date('2025-06-30')) %>%
   
-# Recode missing values of the enrollment episode end date as 6/30/2025
+  # Recode missing values of the enrollment episode end date as 6/30/2025
   
   mutate(elig_to_date = replace_na(elig_to_date, as.Date('2025-06-30'))) %>%
   
-# Remove enrollment episodes that ended before 4/1/2022 (one year before the earliest recert deadline in our study). We don't need to look back any further than this for now.
+  # Remove enrollment episodes that ended before 4/1/2022 (one year before the earliest recert deadline in our study). We don't need to look back any further than this for now.
   
   filter(elig_to_date >= as.Date('2022-04-01')) %>%
   
-# Recode any episode start dates as 4/1/2022 if they are before 4/1/2022
+  # Recode any episode start dates as 4/1/2022 if they are before 4/1/2022
   
   mutate(elig_from_date = if_else(elig_from_date < as.Date('2022-04-01'), as.Date('2022-04-01'), elig_from_date)) %>%
   
-# Deduplicate the data
+  # Deduplicate the data
   
   distinct(mci_uniq_id, child, elig_from_date, elig_to_date) %>%
   
-# Reshape the data to have 1 obs for each day during each enrollment episode
+  # Reshape the data to have 1 obs for each day during each enrollment episode
   
   group_by(mci_uniq_id, child, elig_from_date, elig_to_date) %>%
   reframe(date = list(seq.Date(from = elig_from_date,
@@ -597,35 +587,40 @@ enrollment_days <- sample_enrollment_dates %>%
   mutate(medicaid_enrolled = 1) 
 
 #----------------------------------------------------------------------------
-# Combine the enrollment day panel with the +/- 372 day window of dates around each recert deadline
+# Combine the enrollment days with the grid of +/- 372 days around each recert deadline
 
 medicaid_enrollment_panel_weekly <- recert_date_window_372 %>%
   left_join(enrollment_days, by = c('mci_uniq_id', 'child', 'date')) %>%
   mutate(medicaid_enrolled = replace_na(medicaid_enrolled, 0)) %>%
-
+  
 #----------------------------------------------------------------------------
 # Roll up the daily panel into weeks
 
 # Create a variable for the number of weeks before or after the recert deadline
 
-  mutate(tau_week = as.numeric(floor(difftime(date, recert_deadline, units = "weeks"))) + 1) %>%
+  mutate(tau_week = as.numeric(floor(difftime(date, recert_deadline, units = "weeks"))) + 1,
+         
+# Create a variable for the number of days between 1/1/2020 and the given date
+         
+         calendar_week = as.numeric(floor(difftime(date, as.Date('2020-01-01'), units = "weeks"))) + 1) %>%
   
 # Roll up the data by week
   
-  group_by(mci_uniq_id, person_deadline_id, child, recert_deadline, tau_week) %>%
-  summarise(week_start_date = min(date),
-            medicaid_enrolled = ifelse(sum(medicaid_enrolled) > 0, 1, 0)) %>%
+  group_by(mci_uniq_id, person_deadline_id, child, recert_deadline, tau_week, calendar_week) %>%
+  summarise(medicaid_enrolled = ifelse(sum(medicaid_enrolled) > 0, 1, 0)) %>%
   ungroup() %>%
-  filter(abs(tau_week) <= 52) %>%
   
-# Create a variable for the number of days between 1/1/2020 and the beginning of the week
-
-  mutate(calendar_week = as.numeric(floor(difftime(week_start_date, as.Date('2020-01-01'), units = "weeks"))) + 1) %>%
-  select(-week_start_date) %>%
+# Keep only weeks -52 to 52
+  
+  filter(abs(tau_week) <= 52) %>%
   
 # Create a treatment indicator that = 1 if the person is past their recert deadline 
   
-  mutate(treat = ifelse(tau_week >= 0, 1, 0))
+  mutate(treat = ifelse(tau_week >= 0, 1, 0)) %>%
+  
+# Remove duplicate obs that are a result of some tau weeks overlapping multiple calendar weeks 
+  
+  distinct(mci_uniq_id, person_deadline_id, child, recert_deadline, tau_week, .keep_all = TRUE)
   
 #----------------------------------------------------------------------------
 # Save data
@@ -739,9 +734,15 @@ chip_enrollment_panel_weekly <- chip_enrollment %>%
                                by = "week"))) %>%
   unnest(date) %>%
   ungroup() %>%
+  
+# Create a dummy var that equals 1 if the person was enrolled in CHIP in the given week
+  
   distinct(ma_receipt_num, mci_uniq_id, date) %>%
   mutate(chip_enrolled = 1,
-         calendar_week = as.numeric(floor(difftime(date, as.Date('2022-01-01'), units = "weeks"))) + 1) 
+         
+# Create a variable for the number of weeks since 1/1/2020 
+
+         calendar_week = as.numeric(floor(difftime(date, as.Date('2020-01-01'), units = "weeks"))) + 1) 
   
 # Save data
   
@@ -975,7 +976,7 @@ clinical_connect_coverage_weekly_panel <- clinical_connect_coverage_dates %>%
   unnest(date) %>%
   ungroup() %>%
   distinct(mci_uniq_id, date) %>%
-  mutate(calendar_week = as.numeric(floor(difftime(date, as.Date('2022-01-01'), units = "weeks"))) + 1) %>%
+  mutate(calendar_week = as.numeric(floor(difftime(date, as.Date('2020-01-01'), units = "weeks"))) + 1) %>%
   select(-date)
 
 #-------------------------------------------------------------------------
@@ -988,7 +989,7 @@ clinical_connect_coverage_weekly_panel <- clinical_connect_coverage_dates %>%
 clinical_connect_er_weekly_panel <- clinical_connect_events %>%
   filter(event_type == 'Emergency Department Admission') %>%
   distinct(mci_uniq_id, event_date) %>%
-  mutate(calendar_week = as.numeric(floor(difftime(event_date, as.Date('2022-01-01'), units = "weeks"))) + 1) %>%
+  mutate(calendar_week = as.numeric(floor(difftime(event_date, as.Date('2020-01-01'), units = "weeks"))) + 1) %>%
   group_by(mci_uniq_id, calendar_week) %>%
   summarise(had_er_visit = 1, 
             n_er_visit_days = n()) %>%
@@ -1021,7 +1022,7 @@ clinical_connect_inpatient_weekly_panel <- clinical_connect_events %>%
   unnest(date) %>%
   ungroup() %>%
   distinct(mci_uniq_id, date) %>%
-  mutate(calendar_week = as.numeric(floor(difftime(date, as.Date('2022-01-01'), units = "weeks"))) + 1) %>%
+  mutate(calendar_week = as.numeric(floor(difftime(date, as.Date('2020-01-01'), units = "weeks"))) + 1) %>%
   group_by(mci_uniq_id, calendar_week) %>%
   summarise(had_inpatient_stay = 1, 
             n_inpatient_stay_days = n()) %>%
@@ -1113,6 +1114,10 @@ save(medical_examiner_deaths, file = paste0(filepath, "/Data/Medicaid claims dat
 ```{r}
 
 ```
+
+## 302 commitments
+
+*Ask Pim about pulling this data for our cohort. 
 
 ## ACDHS-funded mental health claims data
 
@@ -2097,13 +2102,17 @@ save(pharmacy_claims, file = paste0(filepath, "/Data/Medicaid claims data/pharma
 
 ### Create panel outcomes data
 
+```{r}
+
+```
+
 ## Prescription Drug Monitoring Program data (fills of controlled substances)
 
 ### Pull and clean the data
 
 ```{r}
 
-# Lisa Kessler says I am not allowed to view this data, but I can send her my analytic data set and she can merge in the outcomes from this data and run my code. 
+# Lisa Kessler says I am not allowed to view this data, but I can send her my analytic data set and she can merge in the outcomes from this data and run my code and share the aggregate output
 ```
 
 

@@ -66,7 +66,6 @@ load(file = paste0(filepath, "/Data/Medicaid enrollment data/sample_terminations
 # Analyze data
 
 dt <- sample_terminations %>% 
-  filter(!is.na(termination_reason_desc)) %>% 
   group_by(termination_reason_desc) %>%
   summarise(count = n()) %>%
   ungroup()
@@ -88,25 +87,12 @@ load(file = paste0(filepath, "/Data/Medicaid enrollment data/medicaid_enrollment
 
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
-# Test for parallel trends in pre-treatment period
-
-pre_trend_data <- medicaid_enrollment_panel_weekly_random_sample %>% 
-  filter(tau_week < 0)
-
-pre_trend_test <- feols(medicaid_enrolled ~ tau_week | person_deadline_id + calendar_week,
-                        data = pre_trend_data,
-                        cluster = "mci_uniq_id")
-
-summary(pre_trend_test)
-
-#----------------------------------------------------------------------------
-#----------------------------------------------------------------------------
 # Benchmark models
 
 #----------------------------------------------------------------------------
 # Basic diff-in-diff model
 
-basic_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week, 
+basic_model <- feols(medicaid_enrolled ~ treat | person_deadline_id, 
                      data = medicaid_enrollment_panel_weekly_random_sample,
                      cluster = "mci_uniq_id")  
 
@@ -117,40 +103,11 @@ summary(basic_model)
 
 # Event study with person-deadline fixed effects
 
-event_study <- feols(medicaid_enrolled ~ i(tau_week, ref = -1) | person_deadline_id + calendar_week,
-                     data = medicaid_enrollment_panel_weekly_random_sample,
-                     cluster = "mci_uniq_id")
+event_study <- feols(medicaid_enrolled ~ i(tau_week, ref = -1) | person_deadline_id,
+                         data = medicaid_enrollment_panel_weekly,
+                         cluster = "mci_uniq_id")
 
 summary(event_study)
-
-#----------------------------------------------------------------------------
-#----------------------------------------------------------------------------
-# Robustness checks
-
-#----------------------------------------------------------------------------
-# Exclude observations very close to the recert deadline ("donut hole")
-
-donut_data <- medicaid_enrollment_panel_weekly %>% 
-  filter(abs(tau_week) > 1)
-
-donut_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
-                     data = donut_data,
-                     cluster = "mci_uniq_id")
-
-#----------------------------------------------------------------------------
-# Different time windows - use a function to recreate data with different window
-
-narrow_model <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
-                      data = medicaid_enrollment_panel_weekly %>%
-                             filter(abs(tau_week) <= 12),
-                      cluster = "mci_uniq_id")
-
-#----------------------------------------------------------------------------
-# Two-way clustering 
-
-twoway_cluster <- feols(medicaid_enrolled ~ treat | person_deadline_id + calendar_week,
-                        data = medicaid_enrollment_panel_weekly,
-                        cluster = c("mci_uniq_id", "calendar_week"))
 ```
 
 ### Figure - Event study plot
@@ -301,7 +258,7 @@ dt <- medicaid_enrollment_panel_weekly_random_sample %>%
 #----------------------------------------------------------------------------
 # Basic diff-in-diff model
 
-basic_model <- feols(had_er_visit ~ treat | person_deadline_id + calendar_week, 
+basic_model <- feols(had_er_visit ~ treat | person_deadline_id, 
                      data = dt,
                      cluster = "mci_uniq_id")  
 
@@ -312,7 +269,7 @@ summary(basic_model)
 
 # Event study with person-deadline fixed effects
 
-event_study <- feols(had_er_visit ~ i(tau_week, ref = -1) | person_deadline_id + calendar_week,
+event_study <- feols(had_er_visit ~ i(tau_week, ref = -1) | person_deadline_id,
                      data = dt,
                      cluster = "mci_uniq_id")
 
