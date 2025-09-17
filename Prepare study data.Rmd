@@ -541,7 +541,7 @@ recert_date_window_372 <- sample_recert_deadlines %>%
   
   mutate(start_date = recert_deadline - 372, 
          end_date = pmin(recert_deadline + 372, as.Date('2025-06-30'))) %>%
-  group_by(mci_uniq_id, person_deadline_id, child, recert_deadline) %>%
+  group_by(mci_uniq_id, person_deadline_id, child, recert_deadline, superseded_deadline) %>%
   reframe(date = seq.Date(from = start_date,
                           to = end_date,
                           by = "day")) %>%
@@ -606,7 +606,7 @@ medicaid_enrollment_panel_weekly <- recert_date_window_372 %>%
   
 # Roll up the data by week
   
-  group_by(mci_uniq_id, person_deadline_id, child, recert_deadline, tau_week, calendar_week) %>%
+  group_by(mci_uniq_id, person_deadline_id, child, recert_deadline, superseded_deadline, tau_week, calendar_week) %>%
   summarise(medicaid_enrolled = ifelse(sum(medicaid_enrolled) > 0, 1, 0)) %>%
   ungroup() %>%
   
